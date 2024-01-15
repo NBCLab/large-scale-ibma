@@ -1,3 +1,7 @@
 *.code-workspace
 
-env/conda_env
+env/nv-ibma_env
+
+data/
+
+results/

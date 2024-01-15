@@ -1,6 +1,6 @@
 module add miniconda3-4.5.11-gcc-8.2.0-oqs2mbg
 
-source activate /home/data/nbc/misc-projects/Peraza_large-scale-ibma/env/conda_env
+source activate /home/data/nbc/misc-projects/Peraza_large-scale-ibma/env/nv-ibma_env
 export project_name="[LSIBMA]"
 
 # Set Python path to project-specific folder
