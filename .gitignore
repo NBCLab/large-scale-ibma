@@ -7,3 +7,9 @@ data/
 results/
 
 jobs/log
+
+*.DS_Store
+
+temp/
+
+figures/decoding/*
