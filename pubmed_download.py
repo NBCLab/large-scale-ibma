@@ -202,6 +202,8 @@ def main(project_dir):
     imgs_dir = op.join(data_dir, "pubmed_images")
     nv_data_dir = op.join(data_dir, "nv-data", NV_VERSION)
     result_dir = op.join(project_dir, "results", "pubmed_ibma")
+    os.makedirs(imgs_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
     dset_fn = op.join(result_dir, "pubmed_dataset-raw.pkl.gz")
 
     nv_pmid_df = pd.read_csv(op.join(nv_data_dir, "pmid_collection_statisticmaps_text_subset.csv"))
