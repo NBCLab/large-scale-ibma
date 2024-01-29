@@ -66,7 +66,8 @@ def _get_outliers(data, ids):
             map_i
             for map_i, map_ in enumerate(maps_lst)
             if ((map_ > 0).sum() == len(map_)) or ((map_ < 0).sum() == len(map_))
-        ]
+        ],
+        dtype=int,
     )
 
     # Get images with less than 40% of voxels
@@ -124,15 +125,15 @@ def main(project_dir, dset_type, job_id, n_cores):
     z_dset.update_path(images_dir)
     z_dset_dict["raw"] = z_dset
 
-    if dset_type == "clean":
-        z_dset_clean_fn = op.join(output_dir, f"{task_name}_dset-clean.pkl.gz")
+    if dset_type == "filtered":
+        z_dset_clean_fn = op.join(output_dir, f"{task_name}_dset-filtered.pkl.gz")
         if not op.isfile(z_dset_clean_fn):
             z_dset_clean = _exclude_outliers(z_dset)
             z_dset_clean.save(z_dset_clean_fn)
         else:
             z_dset_clean = Dataset.load(z_dset_clean_fn)
 
-        z_dset_dict["clean"] = z_dset_clean
+        z_dset_dict["filtered"] = z_dset_clean
 
         print(f"Included Studies: {len(z_dset_clean.ids)}/{len(z_dset.ids)}", flush=True)
 
