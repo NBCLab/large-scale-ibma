@@ -1,3 +1,5 @@
 nimare==0.2.1 # for IBMA
 ipykernel==6.23.1 # for jupyter notebooks in figures
 nbformat==5.9.2 # for jupyter notebooks in figures
+gradec==0.0.1rc3 # for decoding
+numpy==1.26.3
