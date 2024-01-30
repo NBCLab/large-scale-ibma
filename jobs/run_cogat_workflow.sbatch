@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=IBMA-raw
+#SBATCH --job-name=IBMA-filtered
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=20
@@ -22,10 +22,11 @@ source /home/data/nbc/misc-projects/Peraza_large-scale-ibma/env/activate_env
 set -e
 
 PROJECT_DIR="/home/data/nbc/misc-projects/Peraza_large-scale-ibma"
-DSET_TYPE="raw"
+DSET_TYPE="filtered"
+# "raw", "filtered"
 
 # Setup done, run the command
-cmd="python ${PROJECT_DIR}/ibma_workflow.py \
+cmd="python ${PROJECT_DIR}/cogat_workflow.py \
     --project_dir ${PROJECT_DIR} \
     --dset_type ${DSET_TYPE} \
     --job_id ${SLURM_ARRAY_TASK_ID} \

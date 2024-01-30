@@ -2,6 +2,8 @@
 
 env/nv-ibma_env
 
+*.pyc
+
 data/
 
 results/
