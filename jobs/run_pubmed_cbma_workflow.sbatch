@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=pubmed-ibma
+#SBATCH --job-name=pubmed-cbma
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=2
 #SBATCH --account=iacc_nbc
 #SBATCH --qos=pq_nbc
 #SBATCH --partition=IB_40C_512G
@@ -13,7 +13,7 @@
 
 # IB_44C_512G, IB_40C_512G, IB_16C_96G, for running workflow
 # investor, for testing
-# sbatch --array=0-48 run_pubmed_workflow.sbatch
+# sbatch --array=0-48 run_pubmed_cbma_workflow.sbatch
 pwd; hostname; date
 
 #==============Shell script==============#
@@ -24,7 +24,7 @@ set -e
 PROJECT_DIR="/home/data/nbc/misc-projects/Peraza_large-scale-ibma"
 
 # Setup done, run the command
-cmd="python ${PROJECT_DIR}/pubmed_ibma_workflow.py \
+cmd="python ${PROJECT_DIR}/pubmed_cbma_workflow.py \
     --project_dir ${PROJECT_DIR} \
     --job_id ${SLURM_ARRAY_TASK_ID} \
     --n_cores ${SLURM_CPUS_PER_TASK}"
