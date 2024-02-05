@@ -151,11 +151,43 @@ class LDAModel(NiMAREBase):
                 -   ``p_topic_g_word_df``: :obj:`pandas.DataFrame` of shape (n_topics, n_tokens)
                     containing the topic-term weights for the model.
         """
+        vocabulary = counts_df.columns.to_numpy()
         count_values = counts_df.values
+        study_ids = counts_df.index.tolist()
 
         doc_topic_weights = self.model.fit_transform(count_values)
+        topic_word_weights = self.model.components_
 
-        return _annotate_dset(dset, self.model, counts_df, doc_topic_weights)
+        # Get top 3 words for each topic for annotation
+        sorted_weights_idxs = np.argsort(-topic_word_weights, axis=1)
+        top_tokens = [
+            "_".join(vocabulary[sorted_weights_idxs[topic_i, :]][:3])
+            for topic_i in range(self.n_topics)
+        ]
+        topic_names = [
+            f"LDA{self.n_topics}__{i + 1}_{top_tokens[i]}" for i in range(self.n_topics)
+        ]
+
+        doc_topic_weights_df = pd.DataFrame(
+            index=study_ids,
+            columns=topic_names,
+            data=doc_topic_weights,
+        )
+        topic_word_weights_df = pd.DataFrame(
+            index=topic_names,
+            columns=vocabulary,
+            data=topic_word_weights,
+        )
+        self.distributions_ = {
+            "p_topic_g_word": topic_word_weights,
+            "p_topic_g_word_df": topic_word_weights_df,
+        }
+
+        annotations = dset.annotations.copy()
+        annotations = pd.merge(annotations, doc_topic_weights_df, left_on="id", right_index=True)
+        new_dset = dset.copy()
+        new_dset.annotations = annotations
+        return new_dset
 
 
 def annotate_lda(dataset, counts_df, n_topics=100, max_iter=1000, n_cores=1):
