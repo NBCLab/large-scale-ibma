@@ -5,6 +5,7 @@ import os.path as op
 from nimare.dataset import Dataset
 from nimare.meta.ibma import Stouffers
 from nimare.workflows import IBMAWorkflow
+from nimare.correct import FDRCorrector
 from nimare.reports.base import run_reports
 from nimare.results import MetaResult
 from nimare.meta.ibma import Stouffers
@@ -42,7 +43,7 @@ def main(project_dir, job_id, n_cores):
     project_dir = op.abspath(project_dir)
     job_id = int(job_id)
     n_cores = int(n_cores)
-    N_TOPICS = 200
+    N_TOPICS = 100
     freq_thr = 0.05
     min_img_thr = 20
 
@@ -68,7 +69,7 @@ def main(project_dir, job_id, n_cores):
     feature_ids = feature_ids[job_id]
 
     # Create output directories
-    ibma_dir = op.join(result_dir, "nq-lda_200", feature)
+    ibma_dir = op.join(result_dir, f"nq-lda_{N_TOPICS}", feature)
     report_dir = op.join(ibma_dir, "report")
     os.makedirs(ibma_dir, exist_ok=True)
     os.makedirs(report_dir, exist_ok=True)
@@ -80,14 +81,19 @@ def main(project_dir, job_id, n_cores):
     result_fn = op.join(ibma_dir, f"{feature}_result.pkl.gz")
     if not op.isfile(result_fn):
         estimator = Stouffers(use_sample_size=True, aggressive_mask=False)
-        workflow = IBMAWorkflow(estimator=estimator, n_cores=n_cores)
-        result = workflow.fit(feature_dset)
-        result.save(result_fn)
-    else:
-        result = MetaResult.load(result_fn)
+        result = estimator.fit(feature_dset)
+        corrector = FDRCorrector()
+        corr_result = corrector.transform(result)
+        corr_result.save(result_fn)
 
-    if not op.isfile(op.join(report_dir, "report.html")):
-        run_reports(result, report_dir)
+    #    workflow = IBMAWorkflow(estimator=estimator, n_cores=n_cores)
+    #    result = workflow.fit(feature_dset)
+    #    result.save(result_fn)
+    # else:
+    #    result = MetaResult.load(result_fn)
+
+    # if not op.isfile(op.join(report_dir, "report.html")):
+    #    run_reports(result, report_dir)
 
 
 def _main(argv=None):

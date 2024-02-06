@@ -9,6 +9,8 @@ from nimare.workflows import CBMAWorkflow
 from nimare.reports.base import run_reports
 from nimare.results import MetaResult
 
+from utils import _get_studies_to_keep
+
 
 def _get_parser():
     parser = argparse.ArgumentParser(description="Run IBMA workflow")
@@ -38,12 +40,13 @@ def main(project_dir, job_id, n_cores):
     project_dir = op.abspath(project_dir)
     job_id = int(job_id)
     n_cores = int(n_cores)
-    N_TOPICS = 200
-    frequency_threshold = 0.05
+    N_TOPICS = 100
+    freq_thr = 0.05
+    min_img_thr = 20
 
     data_dir = op.join(project_dir, "data")
     images_dir = op.join(data_dir, "pubmed_images")
-    result_dir = op.join(project_dir, "results", "cbma")
+    result_dir = op.join(project_dir, "results", "nq_cbma")
     ibma_dir = op.join(project_dir, "results", "pubmed_ibma")
 
     dset_nq_lda_fn = op.join(data_dir, "neuroquery", "neuroquery_lda_dataset.pkl.gz")
@@ -53,33 +56,28 @@ def main(project_dir, job_id, n_cores):
     dset = Dataset.load(dset_lda_fn)
     dset.update_path(images_dir)
 
+    # Get topics with more than 20 images and at least 5% of the dataset
     feature_group = f"LDA{N_TOPICS}__"
-    feature_names = dset.annotations.columns.values
-    feature_names = [f for f in feature_names if f.startswith(feature_group)]
+    _, feature_names, _ = _get_studies_to_keep(
+        dset,
+        feature_group,
+        min_img_thr=min_img_thr,
+        freq_thr=freq_thr,
+    )
 
-    # Get topics with more than 10 images and at least 5% of the dataset
-    lda_feature_names_keep = []
-    for feature in feature_names:
-        temp_feature_ids = dset.get_studies_by_label(
-            labels=[feature],
-            label_threshold=frequency_threshold,
-        )
-        if len(temp_feature_ids) >= 10:
-            lda_feature_names_keep.append(feature)
-
-    feature = lda_feature_names_keep[job_id]  # Parallelize using job_id in Slurm
+    feature = feature_names[job_id]  # Parallelize using job_id in Slurm
     feature_ids = nq_dset.get_studies_by_label(
         labels=[feature],
-        label_threshold=frequency_threshold,
+        label_threshold=freq_thr,
     )
 
     # Create output directories
-    cbma_dir = op.join(result_dir, "nq-lda_200", feature)
+    cbma_dir = op.join(result_dir, f"nq-lda_{N_TOPICS}", feature)
     report_dir = op.join(cbma_dir, "report")
     os.makedirs(cbma_dir, exist_ok=True)
     os.makedirs(report_dir, exist_ok=True)
 
-    print(f"Processing {feature}. {job_id}/{len(lda_feature_names_keep)}", flush=True)
+    print(f"Processing {feature}. {job_id}/{len(feature_names)}", flush=True)
     print(f"{len(feature_ids)}/{len(nq_dset.ids)} studies", flush=True)
     feature_dset = nq_dset.slice(feature_ids)
 

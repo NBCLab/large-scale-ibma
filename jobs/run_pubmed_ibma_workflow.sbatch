@@ -13,7 +13,7 @@
 
 # IB_44C_512G, IB_40C_512G, IB_16C_96G, for running workflow
 # investor, for testing
-# sbatch --array=0-48 run_pubmed_workflow.sbatch
+# sbatch --array=0-48 run_pubmed_ibma_workflow.sbatch
 pwd; hostname; date
 
 #==============Shell script==============#

@@ -10,8 +10,11 @@ from nimare.workflows import IBMAWorkflow
 from nimare.reports.base import run_reports
 from nimare.results import MetaResult
 from nimare.meta.ibma import Stouffers
+from nimare.transforms import ImagesToCoordinates
 from nimare.workflows import IBMAWorkflow
 from nimare.reports.base import run_reports
+
+from utils import _get_studies_to_keep
 
 
 def _get_parser():
@@ -42,38 +45,45 @@ def main(project_dir, job_id, n_cores):
     project_dir = op.abspath(project_dir)
     job_id = int(job_id)
     n_cores = int(n_cores)
-    N_TOPICS = 200
-    frequency_threshold = 0.05
+    N_TOPICS = 100
+    freq_thr = 0.05
+    min_img_thr = 20
 
+    data_dir = op.join(project_dir, "data")
+    images_dir = op.join(data_dir, "pubmed_images")
     result_dir = op.join(project_dir, "results", "pubmed_cbma")
-    dset_lda_fn = op.join(result_dir, "pubmed-lda-coords_dataset-filtered.pkl.gz")
 
-    dset = Dataset.load(dset_lda_fn)
+    dset_lda_coords_fn = op.join(result_dir, "pubmed-lda-coords_dataset-filtered.pkl.gz")
+    if not op.isfile(dset_lda_coords_fn):
+        ibma_dir = op.join(project_dir, "results", "pubmed_ibma")
+        dset_lda_fn = op.join(ibma_dir, "pubmed-lda_dataset-filtered.pkl.gz")
 
+        dset_no_coord = Dataset.load(dset_lda_fn)
+        dset_no_coord.update_path(images_dir)
+
+        coord = ImagesToCoordinates()
+        dset = coord.transform(dset_no_coord)
+        dset.save(dset_lda_coords_fn)
+    else:
+        dset = Dataset.load(dset_lda_coords_fn)
+
+    # Get topics with more than 20 images and at least 5% of the dataset
     feature_group = f"LDA{N_TOPICS}__"
-    feature_names = dset.annotations.columns.values
-    feature_names = [f for f in feature_names if f.startswith(feature_group)]
+    _, feature_names, feature_ids = _get_studies_to_keep(
+        dset,
+        feature_group,
+        min_img_thr=min_img_thr,
+        freq_thr=freq_thr,
+    )
 
-    # Get topics with more than 10 images and at least 5% of the dataset
-    lda_feature_names_keep = []
-    feature_ids_lst = []
-    for feature in feature_names:
-        temp_feature_ids = dset.get_studies_by_label(
-            labels=[feature],
-            label_threshold=frequency_threshold,
-        )
-        if len(temp_feature_ids) >= 10:
-            lda_feature_names_keep.append(feature)
-            feature_ids_lst.append(temp_feature_ids)
-
-    feature = lda_feature_names_keep[job_id]  # Parallelize using job_id in Slurm
-    feature_ids = feature_ids_lst[job_id]
+    feature = feature_names[job_id]  # Parallelize using job_id in Slurm
+    feature_ids = feature_ids[job_id]
 
     # Create output directories
-    cbma_dir = op.join(result_dir, "nq-lda_200", feature)
+    cbma_dir = op.join(result_dir, f"nq-lda_{N_TOPICS}", feature)
     os.makedirs(cbma_dir, exist_ok=True)
 
-    print(f"Processing {feature}. {job_id}/{len(lda_feature_names_keep)}", flush=True)
+    print(f"Processing {feature}. {job_id}/{len(feature_names)}", flush=True)
     print(f"{len(feature_ids)}/{len(dset.ids)} studies", flush=True)
     feature_dset = dset.slice(feature_ids)
 
