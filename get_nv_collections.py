@@ -106,11 +106,11 @@ def search_by_title(title):
     response = requests.get(url)
     if response.status_code != 200:
         raise Exception(f"PubMed API returned status code {response.status_code} for {url}")
+
     data = response.json()
-    if data["esearchresult"]["idlist"]:
-        return data["esearchresult"]["idlist"][0]
-    else:
-        return None
+    id_list = data.get("esearchresult", {}).get("idlist", [])
+
+    return id_list[0] if id_list else None
 
 
 def main(project_dir, pg_query_id):
@@ -175,9 +175,9 @@ def main(project_dir, pg_query_id):
     # 3. Find PMID for NeuroVault collections using the collection name
     # ======================================================
     collections_missing = collections_df[
-        ~collections_df["id"].isin(collections_with_dois["collection_id"])
+        ~collections_df["id"].isin(collections_with_pmid["collection_id"])
     ]
-    collections_missing = collections_df[collections_df.name.notnull()]
+    collections_missing = collections_missing[collections_missing.name.notnull()]
 
     # Drop collections with names that are too short
     collections_missing = collections_missing[collections_missing["name"].str.len() > 40]
