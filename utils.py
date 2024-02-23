@@ -1,5 +1,6 @@
 """Utility functions for the meta-analysis pipeline."""
 
+import requests
 import os.path as op
 
 import pandas as pd
@@ -220,3 +221,28 @@ def _get_studies_to_keep(dset, feature_group, min_img_thr=20, freq_thr=0.05):
             feature_to_keep_ids.append(temp_feature_ids)
 
     return idx_to_keep, feature_to_keep, feature_to_keep_ids
+
+
+def get_pmcids_from_dois(dois):
+    """Query PubMed for the PMC IDs of a list of papers based on their DOIs."""
+    pmids = []
+    for i in range(0, len(dois), 100):
+        chunk = dois[i : i + 100]
+        url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=({' OR '.join(chunk)})&retmode=json"
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(f"PubMed API returned status code {response.status_code} for {url}")
+        data = response.json()
+        pmids += data["esearchresult"]["idlist"]
+    pmcids = []
+    for i in range(0, len(pmids), 100):
+        chunk = pmids[i : i + 100]
+        url = f"https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?ids={'%2C'.join(chunk)}&format=json"
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(f"PubMed API returned status code {response.status_code} for {url}")
+        data = response.json()
+        for record in data["records"]:
+            if "pmcid" in record:
+                pmcids.append(record["pmcid"])
+    return pmcids

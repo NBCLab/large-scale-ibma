@@ -253,6 +253,9 @@ def main(project_dir, pg_query_id):
     )
     collections_with_pmid.to_csv(op.join(data_dir, "nv_collections.csv"), index=False)
 
+    pmcids = collections_with_pmid["pmcid"].dropna().astype(int).astype(str).unique()
+    np.savetxt(op.join(data_dir, "nv-pmcids.txt"), pmcids, fmt="%s")
+
 
 def _main(argv=None):
     option = _get_parser().parse_args(argv)
