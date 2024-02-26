@@ -34,7 +34,7 @@ def get_pmid_from_doi(doi):
     """Query PubMed for the PMID of a paper based on its DOI."""
     url = (
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&"
-        f"term={doi}&retmode=json"
+        f'term="{doi}"&retmode=json'
     )
     response = requests.get(url)
     if response.status_code != 200:
