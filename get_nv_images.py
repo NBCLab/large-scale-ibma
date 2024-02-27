@@ -23,12 +23,21 @@ def _get_parser():
     return parser
 
 
-def download_images(image_ids, output_directory):
-    image_info_list = []
+def list_of_dicts_to_dict_of_lists(list_of_dicts):
+    dict_of_lists = {}
+    for dict_ in list_of_dicts:
+        for key, value in dict_.items():
+            if key not in dict_of_lists:
+                dict_of_lists[key] = []
+            dict_of_lists[key].append(value)
+    return dict_of_lists
 
+
+def download_images(image_ids, output_directory):
     # Ensure the output directory exists
     os.makedirs(output_directory, exist_ok=True)
 
+    image_info_dict = {"image_id": [], "image_path": []}
     for image_id in image_ids:
         # Construct the NeuroVault API URL for image info
         image_info_url = f"https://neurovault.org/api/images/{image_id}/"
@@ -44,9 +53,8 @@ def download_images(image_ids, output_directory):
                 image_url = image_info["file"]
                 collection_id = image_info["collection_id"]
                 image_filename = os.path.basename(image_url)
-                image_path = os.path.join(
-                    output_directory, f"{collection_id}-{image_id}_{image_filename}"
-                )
+                rel_path = f"{collection_id}-{image_id}_{image_filename}"
+                image_path = os.path.join(output_directory, rel_path)
                 if not os.path.exists(image_path):
                     # Download the image
                     response = requests.get(image_url)
@@ -60,8 +68,8 @@ def download_images(image_ids, output_directory):
                     pass
                 else:
                     # Append image info to the list
-                    image_info["relative_path"] = f"{collection_id}-{image_id}_{image_filename}"
-                    image_info_list.append(image_info)
+                    image_info_dict["image_id"].append(image_id)
+                    image_info_dict["image_path"].append(rel_path)
 
         except Exception as e:
             print(
@@ -69,7 +77,7 @@ def download_images(image_ids, output_directory):
                 flush=True,
             )
 
-    return image_info_list
+    return image_info_dict
 
 
 def derive_map_type(row):
@@ -124,32 +132,32 @@ def main(project_dir):
         statisticmap, image_merged, left_on="image_ptr_id", right_on="basecollectionitem_ptr_id"
     )
 
-    # Remove rows with missing cognitive_paradigm_cogatlas_id
-    statisticmap_merged = statisticmap_merged.loc[
-        ~statisticmap_merged["cognitive_paradigm_cogatlas_id"].isna()
+    # Remove rows with missing cognitive_paradigm_cogatlas_id and number_of_subjects
+    statisticmap_merged = statisticmap_merged.dropna(
+        subset=["cognitive_paradigm_cogatlas_id", "number_of_subjects"]
+    )
+
+    # Keep only rows with collection_id in collections_pmid_df
+    statisticmap_filtered = statisticmap_filtered[
+        statisticmap_filtered.collection_id.isin(collections_pmid_df.collection_id)
     ]
 
+    # Filter the statisticmap_merged DataFrame
     statisticmap_filtered = statisticmap_merged.query(
         'modality == "fMRI-BOLD"'
         ' & analysis_level == "G"'
         ' & is_thresholded == "f"'
         ' & (map_type == "Z" | map_type == "Other" | map_type == "T")'
+        " & brain_coverage > 40"
+        " & number_of_subjects > 10"
+        ' & cognitive_paradigm_cogatlas_id != "trm_4c8a834779883"'  # rest eyes open
+        ' & cognitive_paradigm_cogatlas_id != "trm_54e69c642d89b"'  # rest eyes closed
+        ' & not_mni == "f"'
     )
 
-    # Remove images labeled as "rest eyes open" and "rest eyes closed"
-    cogat_to_drop = ["trm_4c8a834779883", "trm_54e69c642d89b"]  # rest eyes open, rest eyes closed
-    statisticmap_filtered = statisticmap_filtered.loc[
-        ~statisticmap_filtered["cognitive_paradigm_cogatlas_id"].isin(cogat_to_drop)
-    ]
-
-    # Derive the "Other" map type
+    # Relabel the "Other" map type into "Z" or "T" based on the file name and decription
     statisticmap_filtered["map_type"] = statisticmap_filtered.apply(derive_map_type, axis=1)
-
     statisticmap_filtered = statisticmap_filtered[statisticmap_filtered.map_type.notnull()]
-    # Keep only rows with collection_id in collections_pmid_df
-    statisticmap_filtered = statisticmap_filtered[
-        statisticmap_filtered.collection_id.isin(collections_pmid_df.collection_id)
-    ]
 
     keep_columns = [
         "name",
@@ -157,6 +165,7 @@ def main(project_dir):
         "file",
         "collection_id",
         "image_ptr_id",
+        "number_of_subjects",
         "cognitive_paradigm_cogatlas_id",
     ]
     statisticmap_filtered = statisticmap_filtered[keep_columns]
@@ -178,6 +187,7 @@ def main(project_dir):
         "image_name",
         "map_type",
         "image_file",
+        "number_of_subjects",
         "cognitive_paradigm_cogatlas_id",
         "source",
     ]
@@ -198,15 +208,16 @@ def main(project_dir):
 
     # Keep downloaded images only
     image_ids = statisticmap_colelctions["image_id"].unique()
-    image_info_list = download_images(image_ids, image_dir)
+    usable_images_dict = download_images(image_ids, image_dir)
+    usable_images_df = pd.DataFrame(usable_images_dict)
 
-    usable_image_ids = [image_info["id"] for image_info in image_info_list]
-    print(f"Usable images: {len(usable_image_ids)/len(image_ids)}")
+    # Temporary save this file for debugging
+    usable_images_df.to_csv(op.join(data_dir, "nv_images_metadata.csv"), index=False)
 
-    statisticmap_colelctions = statisticmap_colelctions[
-        statisticmap_colelctions["image_id"].isin(usable_image_ids)
-    ]
-    statisticmap_colelctions.to_csv(op.join(data_dir, "nv_collections_images.csv"), index=False)
+    print(f"Usable images: {len(usable_images_df)}/{len(image_ids)}")
+
+    nv_collections_images_df = pd.merge(statisticmap_colelctions, usable_images_df, on="image_id")
+    nv_collections_images_df.to_csv(op.join(data_dir, "nv_collections_images.csv"), index=False)
 
 
 def _main(argv=None):
