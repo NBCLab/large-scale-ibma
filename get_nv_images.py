@@ -11,6 +11,28 @@ import pandas as pd
 NEUROSCOUT_OWNER_ID = 5761
 NV_VERSION = "february_2024"
 
+KEEP_IMG_COLUMNS = [
+    "image_name",
+    "map_type",
+    "image_file",
+    "collection_id",
+    "image_id",
+    "number_of_subjects",
+    "cognitive_paradigm_cogatlas_id",
+    "cognitive_contrast_cogatlas_id",
+    "contrast_definition",
+]
+
+KEEP_COL_COLUMNS = [
+    "pmid",
+    "pmcid",
+    "doi",
+    "secondary_doi",
+    "collection_id",
+    "collection_name",
+    "source",
+]
+
 
 def _get_parser():
     parser = argparse.ArgumentParser(description="Download NeuroVault data")
@@ -21,16 +43,6 @@ def _get_parser():
         help="Path to project directory",
     )
     return parser
-
-
-def list_of_dicts_to_dict_of_lists(list_of_dicts):
-    dict_of_lists = {}
-    for dict_ in list_of_dicts:
-        for key, value in dict_.items():
-            if key not in dict_of_lists:
-                dict_of_lists[key] = []
-            dict_of_lists[key].append(value)
-    return dict_of_lists
 
 
 def download_images(image_ids, output_directory):
@@ -104,13 +116,6 @@ def derive_map_type(row):
     return map_type
 
 
-def get_task_name(task_id):
-    cog_atlas_template_url = f"http://cognitiveatlas.org/api/v-alpha/task?id={task_id}"
-    resp = requests.get(cog_atlas_template_url)
-
-    return resp.json().get("name", None)
-
-
 def main(project_dir):
     data_dir = op.join(project_dir, "data")
     nv_data_dir = op.join(data_dir, "nv-data", NV_VERSION)
@@ -120,11 +125,14 @@ def main(project_dir):
     basecollectionitem = pd.read_csv(op.join(nv_data_dir, "statmaps_basecollectionitem.csv"))
     image = pd.read_csv(op.join(nv_data_dir, "statmaps_image.csv"))
     statisticmap = pd.read_csv(op.join(nv_data_dir, "statmaps_statisticmap.csv"))
+    cogat_tasks = pd.read_csv(op.join(nv_data_dir, "statmaps_cognitiveatlastask.csv"))
+    cogat_contrasts = pd.read_csv(op.join(nv_data_dir, "statmaps_cognitiveatlascontrast.csv"))[
+        ["name", "cog_atlas_id"]
+    ]
 
     # Load the file with NeuroVault collections linked to PubMed articles
     # (created by get_nv_collections.py)
     collections_pmid_df = pd.read_csv(op.join(data_dir, "nv_collections.csv"))
-
     image_merged = pd.merge(
         image, basecollectionitem, left_on="basecollectionitem_ptr_id", right_on="id"
     )
@@ -138,8 +146,8 @@ def main(project_dir):
     )
 
     # Keep only rows with collection_id in collections_pmid_df
-    statisticmap_filtered = statisticmap_filtered[
-        statisticmap_filtered.collection_id.isin(collections_pmid_df.collection_id)
+    statisticmap_merged = statisticmap_merged[
+        statisticmap_merged.collection_id.isin(collections_pmid_df.collection_id)
     ]
 
     # Filter the statisticmap_merged DataFrame
@@ -159,61 +167,49 @@ def main(project_dir):
     statisticmap_filtered["map_type"] = statisticmap_filtered.apply(derive_map_type, axis=1)
     statisticmap_filtered = statisticmap_filtered[statisticmap_filtered.map_type.notnull()]
 
-    keep_columns = [
-        "name",
-        "map_type",
-        "file",
-        "collection_id",
-        "image_ptr_id",
-        "number_of_subjects",
-        "cognitive_paradigm_cogatlas_id",
-    ]
-    statisticmap_filtered = statisticmap_filtered[keep_columns]
+    # Rename columns before merging with collections_pmid_df
     statisticmap_filtered = statisticmap_filtered.rename(
         columns={"image_ptr_id": "image_id", "file": "image_file", "name": "image_name"}
     )
+    statisticmap_filtered = statisticmap_filtered[KEEP_IMG_COLUMNS]
 
     statisticmap_colelctions = pd.merge(
-        statisticmap_filtered, collections_pmid_df, how="left", on="collection_id"
+        statisticmap_filtered,
+        collections_pmid_df,
+        how="left",
+        on="collection_id",
     )
-    sorted_columns = [
-        "pmid",
-        "pmcid",
-        "doi",
-        "secondary_doi",
-        "collection_id",
-        "collection_name",
-        "image_id",
-        "image_name",
-        "map_type",
-        "image_file",
-        "number_of_subjects",
-        "cognitive_paradigm_cogatlas_id",
-        "source",
-    ]
+    sorted_columns = KEEP_COL_COLUMNS + KEEP_IMG_COLUMNS
     statisticmap_colelctions = statisticmap_colelctions[sorted_columns]
 
-    unique_cogatlas_ids = statisticmap_colelctions["cognitive_paradigm_cogatlas_id"].unique()
-    unique_cogatlas_names = [get_task_name(task_id) for task_id in unique_cogatlas_ids]
-    cogatlas_df = pd.DataFrame(
-        {
-            "cognitive_paradigm_cogatlas_id": unique_cogatlas_ids,
-            "cognitive_paradigm_cogatlas_name": unique_cogatlas_names,
-        }
+    # Get the cognitive paradigm names
+    statisticmap_colelctions = pd.merge(
+        statisticmap_colelctions,
+        cogat_tasks,
+        how="left",
+        left_on="cognitive_paradigm_cogatlas_id",
+        right_on="cog_atlas_id",
+    )
+    statisticmap_colelctions = statisticmap_colelctions.rename(
+        columns={"name": "cognitive_paradigm_cogatlas_name"}
     )
 
+    # Get the cognitive contrast names
     statisticmap_colelctions = pd.merge(
-        statisticmap_colelctions, cogatlas_df, how="left", on="cognitive_paradigm_cogatlas_id"
+        statisticmap_colelctions,
+        cogat_contrasts,
+        how="left",
+        left_on="cognitive_contrast_cogatlas_id",
+        right_on="cog_atlas_id",
+    )
+    statisticmap_colelctions = statisticmap_colelctions.rename(
+        columns={"name": "cognitive_contrast_cogatlas_name"}
     )
 
     # Keep downloaded images only
     image_ids = statisticmap_colelctions["image_id"].unique()
     usable_images_dict = download_images(image_ids, image_dir)
     usable_images_df = pd.DataFrame(usable_images_dict)
-
-    # Temporary save this file for debugging
-    usable_images_df.to_csv(op.join(data_dir, "nv_images_metadata.csv"), index=False)
-
     print(f"Usable images: {len(usable_images_df)}/{len(image_ids)}")
 
     nv_collections_images_df = pd.merge(statisticmap_colelctions, usable_images_df, on="image_id")
