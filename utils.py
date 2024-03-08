@@ -77,6 +77,7 @@ def _exclude_outliers(dset):
 
 def _generate_counts(
     text_df,
+    id_col="id",
     vocabulary=None,
     text_column="abstract",
     tfidf=True,
@@ -100,15 +101,15 @@ def _generate_counts(
         raise ValueError(f"Column '{text_column}' not found in DataFrame")
 
     # Remove rows with empty text cells
-    orig_ids = text_df["id"].tolist()
+    orig_ids = text_df[id_col].tolist()
     text_df = text_df.fillna("")
-    keep_ids = text_df.loc[text_df[text_column] != "", "id"]
-    text_df = text_df.loc[text_df["id"].isin(keep_ids)]
+    keep_ids = text_df.loc[text_df[text_column] != "", id_col]
+    text_df = text_df.loc[text_df[id_col].isin(keep_ids)]
 
     if len(keep_ids) != len(orig_ids):
         print(f"\t\tRetaining {len(keep_ids)}/{len(orig_ids)} studies", flush=True)
 
-    ids = text_df["id"].tolist()
+    ids = text_df[id_col].tolist()
     text = text_df[text_column].tolist()
     stoplist = op.join(get_resource_path(), "neurosynth_stoplist.txt")
     with open(stoplist, "r") as fo:
@@ -135,7 +136,7 @@ def _generate_counts(
     names = vectorizer.get_feature_names_out()
     names = [str(name) for name in names]
     weights_df = pd.DataFrame(weights, columns=names, index=ids)
-    weights_df.index.name = "id"
+    weights_df.index.name = id_col
     return weights_df
 
 
