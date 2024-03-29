@@ -27,29 +27,34 @@ def convert_to_nimare_dataset(images_df, contrast_name, img_dir):
         image_path = image["image_path"]
         map_type = f"{image['map_type']} map"
         sample_size = image["number_of_subjects"]
-        id_ = f"study-{collection_id}-{image_id}"
+        id_ = image["pmid"]
+        new_contrast_name = f"{collection_id}-{image_id}-{contrast_name}"
 
-        dataset_dict[id_] = {
-            "contrasts": {
-                contrast_name: {
-                    "metadata": {"sample_sizes": None},
-                    "images": {DEFAULT_MAP_TYPE_CONVERSION[map_type]: None},
-                }
-            }
+        if id_ not in dataset_dict:
+            dataset_dict[id_] = {}
+
+        if "contrasts" not in dataset_dict[id_]:
+            dataset_dict[id_]["contrasts"] = {}
+
+        dataset_dict[id_]["contrasts"][new_contrast_name] = {
+            "metadata": {"sample_sizes": None},
+            "images": {DEFAULT_MAP_TYPE_CONVERSION[map_type]: None},
         }
+
         (
-            dataset_dict[id_]["contrasts"][contrast_name]["images"][
+            dataset_dict[id_]["contrasts"][new_contrast_name]["images"][
                 DEFAULT_MAP_TYPE_CONVERSION[map_type]
             ]
         ) = "/".join([img_dir, image_path])
 
         if type(sample_size) is int:
-            dataset_dict[id_]["contrasts"][contrast_name]["metadata"]["sample_sizes"] = [
+            dataset_dict[id_]["contrasts"][new_contrast_name]["metadata"]["sample_sizes"] = [
                 sample_size
             ]
         else:
             print(f"\t\t{sample_size} not int", flush=True)
 
+    print(dataset_dict)
     return Dataset(dataset_dict)
 
 
@@ -100,27 +105,54 @@ def main(project_dir):
     ]
 
     dset_fn = op.join(cogat_res_dir, "go-no-go-task_full_dataset.pkl")
+    dset_mod_fn = op.join(cogat_res_dir, "go-no-go-task_mod_dataset.pkl")
     dset_rand_fn = op.join(cogat_res_dir, "go-no-go-task_random_dataset.pkl")
     dset_select_fn = op.join(cogat_res_dir, "go-no-go-task_selected_dataset.pkl")
+    contrast_name = "gng"
 
-    print(f"Creating full dataset {nv_collections_images_gonogo_df.shape[0]}", flush=True)
-    dset = convert_to_nimare_dataset(nv_collections_images_gonogo_df, "go_no-go_task", image_dir)
-    z_dset = ImageTransformer("z").transform(dset)
-    z_dset.save(dset_fn)
+    if not op.exists(dset_fn):
+        print(f"Creating full dataset {nv_collections_images_gonogo_df.shape[0]}", flush=True)
+        dset = convert_to_nimare_dataset(
+            nv_collections_images_gonogo_df,
+            contrast_name,
+            image_dir,
+        )
+        z_dset = ImageTransformer("z").transform(dset)
+        z_dset.save(dset_fn)
 
-    print(f"Creating random dataset {nv_collections_images_gonogo_rand_df.shape[0]}", flush=True)
-    dset_rand = convert_to_nimare_dataset(
-        nv_collections_images_gonogo_rand_df, "go_no-go_task", image_dir
-    )
-    z_dset_rand = ImageTransformer("z").transform(dset_rand)
-    z_dset_rand.save(dset_rand_fn)
+    if not op.exists(dset_mod_fn):
+        print(f"Creating modified dataset {nv_collections_images_gonogo_df.shape[0]}", flush=True)
+        dset_mod = convert_to_nimare_dataset(
+            nv_collections_images_gonogo_df,
+            contrast_name,
+            image_dir,
+        )
+        z_dset_mod = ImageTransformer("z").transform(dset_mod)
+        z_dset_mod.save(dset_mod_fn)
 
-    print(f"Creating select dataset {nv_collections_images_gonogo_sel_df.shape[0]}", flush=True)
-    dset_select = convert_to_nimare_dataset(
-        nv_collections_images_gonogo_sel_df, "go_no-go_task", image_dir
-    )
-    z_dset_select = ImageTransformer("z").transform(dset_select)
-    z_dset_select.save(dset_select_fn)
+    if not op.exists(dset_rand_fn):
+        print(
+            f"Creating random dataset {nv_collections_images_gonogo_rand_df.shape[0]}", flush=True
+        )
+        dset_rand = convert_to_nimare_dataset(
+            nv_collections_images_gonogo_rand_df,
+            contrast_name,
+            image_dir,
+        )
+        z_dset_rand = ImageTransformer("z").transform(dset_rand)
+        z_dset_rand.save(dset_rand_fn)
+
+    if not op.exists(dset_select_fn):
+        print(
+            f"Creating select dataset {nv_collections_images_gonogo_sel_df.shape[0]}", flush=True
+        )
+        dset_select = convert_to_nimare_dataset(
+            nv_collections_images_gonogo_sel_df,
+            contrast_name,
+            image_dir,
+        )
+        z_dset_select = ImageTransformer("z").transform(dset_select)
+        z_dset_select.save(dset_select_fn)
 
 
 def _main(argv=None):
