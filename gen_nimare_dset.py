@@ -67,92 +67,17 @@ def main(project_dir):
 
     # Select all images from the Go/No-Go task
     nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
-    nv_collections_images_gonogo_df = nv_collections_images_df[
-        nv_collections_images_df.cognitive_paradigm_cogatlas_id == "tsk_4a57abb949a93"
-    ]
+    dset_nv_fn = op.join(cogat_res_dir, "neurovault_full_dataset.pkl")
 
-    # Select one image per collection
-    collections = nv_collections_images_gonogo_df.collection_id.unique()
-    image_selected_lst = []
-    for collection in collections:
-        sub_df = nv_collections_images_df[nv_collections_images_df.collection_id == collection]
-        image_selected = sub_df.sample(1)
-        image_selected_lst.append(image_selected)
-    nv_collections_images_gonogo_rand_df = pd.concat(image_selected_lst)
-
-    # Select the most relevant image per collection
-    sel_images = [
-        28449,
-        28869,
-        29375,
-        43883,
-        51756,
-        57054,
-        65854,
-        68578,
-        127869,
-        127949,
-        129029,
-        129184,
-        191520,
-        392361,
-        550207,
-        550241,
-        550290,
-    ]
-    nv_collections_images_gonogo_sel_df = nv_collections_images_gonogo_df[
-        nv_collections_images_gonogo_df.image_id.isin(sel_images)
-    ]
-
-    dset_fn = op.join(cogat_res_dir, "go-no-go-task_full_dataset.pkl")
-    dset_mod_fn = op.join(cogat_res_dir, "go-no-go-task_mod_dataset.pkl")
-    dset_rand_fn = op.join(cogat_res_dir, "go-no-go-task_random_dataset.pkl")
-    dset_select_fn = op.join(cogat_res_dir, "go-no-go-task_selected_dataset.pkl")
-    contrast_name = "gng"
-
-    if not op.exists(dset_fn):
-        print(f"Creating full dataset {nv_collections_images_gonogo_df.shape[0]}", flush=True)
-        dset = convert_to_nimare_dataset(
-            nv_collections_images_gonogo_df,
-            contrast_name,
+    if not op.exists(dset_nv_fn):
+        print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
+        dset_nv = convert_to_nimare_dataset(
+            nv_collections_images_df,
+            "nv",
             image_dir,
         )
-        z_dset = ImageTransformer("z").transform(dset)
-        z_dset.save(dset_fn)
-
-    if not op.exists(dset_mod_fn):
-        print(f"Creating modified dataset {nv_collections_images_gonogo_df.shape[0]}", flush=True)
-        dset_mod = convert_to_nimare_dataset(
-            nv_collections_images_gonogo_df,
-            contrast_name,
-            image_dir,
-        )
-        z_dset_mod = ImageTransformer("z").transform(dset_mod)
-        z_dset_mod.save(dset_mod_fn)
-
-    if not op.exists(dset_rand_fn):
-        print(
-            f"Creating random dataset {nv_collections_images_gonogo_rand_df.shape[0]}", flush=True
-        )
-        dset_rand = convert_to_nimare_dataset(
-            nv_collections_images_gonogo_rand_df,
-            contrast_name,
-            image_dir,
-        )
-        z_dset_rand = ImageTransformer("z").transform(dset_rand)
-        z_dset_rand.save(dset_rand_fn)
-
-    if not op.exists(dset_select_fn):
-        print(
-            f"Creating select dataset {nv_collections_images_gonogo_sel_df.shape[0]}", flush=True
-        )
-        dset_select = convert_to_nimare_dataset(
-            nv_collections_images_gonogo_sel_df,
-            contrast_name,
-            image_dir,
-        )
-        z_dset_select = ImageTransformer("z").transform(dset_select)
-        z_dset_select.save(dset_select_fn)
+        z_dset_nv = ImageTransformer("z").transform(dset_nv)
+        z_dset_nv.save(dset_nv_fn)
 
 
 def _main(argv=None):
