@@ -193,6 +193,7 @@ def main(project_dir):
     statisticmap_colelctions = statisticmap_colelctions.rename(
         columns={"name": "cognitive_paradigm_cogatlas_name"}
     )
+    statisticmap_colelctions = statisticmap_colelctions.drop(columns=["cog_atlas_id"])
 
     # Get the cognitive contrast names
     statisticmap_colelctions = pd.merge(
@@ -205,6 +206,7 @@ def main(project_dir):
     statisticmap_colelctions = statisticmap_colelctions.rename(
         columns={"name": "cognitive_contrast_cogatlas_name"}
     )
+    statisticmap_colelctions = statisticmap_colelctions.drop(columns=["cog_atlas_id"])
 
     # Keep downloaded images only
     image_ids = statisticmap_colelctions["image_id"].unique()
