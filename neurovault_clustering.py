@@ -204,6 +204,11 @@ def main(project_dir, atlas=None, n_cores=1):
             data_df[f"hdbscan_c-{n_components}_n-{n_neighbors}_d-{min_dist}_{min_samples}"] = (
                 labels
             )
+            data_df[f"hdbscan_c-{n_components}_n-{n_neighbors}_d-{min_dist}_{min_samples}"] = (
+                data_df[
+                    f"hdbscan_c-{n_components}_n-{n_neighbors}_d-{min_dist}_{min_samples}"
+                ].astype(str)
+            )
             silhouette = silhouette_score(embedding_nv, labels)
 
             silhouette_dict["min_samples"].append(min_samples)
