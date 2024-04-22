@@ -19,16 +19,16 @@ def _get_parser():
     return parser
 
 
-def convert_to_nimare_dataset(images_df, contrast_name, img_dir):
+def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
+    suffix = f"-{suffix}" if suffix else ""
+
     dataset_dict = {}
     for _, image in images_df.iterrows():
-        collection_id = image["collection_id"]
-        image_id = image["image_id"]
-        image_path = image["image_path"]
-        map_type = f"{image['map_type']} map"
-        sample_size = image["number_of_subjects"]
         id_ = image["pmid"]
-        new_contrast_name = f"{collection_id}-{image_id}-{contrast_name}"
+        image_id = image["image_id"]
+        collection_id = image["collection_id"]
+        map_type = f"{image['map_type']} map"
+        new_contrast_name = f"{collection_id}-{image_id}" + suffix
 
         if id_ not in dataset_dict:
             dataset_dict[id_] = {}
@@ -36,25 +36,38 @@ def convert_to_nimare_dataset(images_df, contrast_name, img_dir):
         if "contrasts" not in dataset_dict[id_]:
             dataset_dict[id_]["contrasts"] = {}
 
+        text_df_row = text_df[text_df["pmid"] == int(id_)]
+        if text_df_row.shape[0] == 0:
+            title, keywords, abstract, body = None, None, None, None
+        else:
+            title = text_df_row["title"].values[0]
+            keywords = text_df_row["keywords"].values[0]
+            abstract = text_df_row["abstract"].values[0]
+            body = text_df_row["body"].values[0]
+
         dataset_dict[id_]["contrasts"][new_contrast_name] = {
-            "metadata": {"sample_sizes": None},
-            "images": {DEFAULT_MAP_TYPE_CONVERSION[map_type]: None},
+            "metadata": {
+                "sample_sizes": [image["number_of_subjects"]],
+                "pmcid": image["pmcid"],
+                "collection_id": collection_id,
+                "image_id": image_id,
+                "cognitive_paradigm_cogatlas_id": image["cognitive_paradigm_cogatlas_id"],
+                "cognitive_contrast_cogatlas_id": image["cognitive_contrast_cogatlas_id"],
+                "contrast_definition": image["contrast_definition"],
+                "cognitive_paradigm_cogatlas_name": image["cognitive_paradigm_cogatlas_name"],
+                "cognitive_contrast_cogatlas_name": image["cognitive_contrast_cogatlas_name"],
+            },
+            "text": {
+                "title": title,
+                "keywords": keywords,
+                "abstract": abstract,
+                "body": body,
+            },
+            "images": {
+                DEFAULT_MAP_TYPE_CONVERSION[map_type]: op.join(img_dir, image["image_path"])
+            },
         }
 
-        (
-            dataset_dict[id_]["contrasts"][new_contrast_name]["images"][
-                DEFAULT_MAP_TYPE_CONVERSION[map_type]
-            ]
-        ) = "/".join([img_dir, image_path])
-
-        if type(sample_size) is int:
-            dataset_dict[id_]["contrasts"][new_contrast_name]["metadata"]["sample_sizes"] = [
-                sample_size
-            ]
-        else:
-            print(f"\t\t{sample_size} not int", flush=True)
-
-    print(dataset_dict)
     return Dataset(dataset_dict)
 
 
@@ -65,19 +78,18 @@ def main(project_dir):
     image_dir = op.join(data_dir, "nv-data", "images")
     os.makedirs(cogat_res_dir, exist_ok=True)
 
-    # Select all images from the Go/No-Go task
     nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
+    nv_text_df = pd.read_csv(op.join(data_dir, "pmid_text.csv"))
     dset_nv_fn = op.join(cogat_res_dir, "neurovault_full_dataset.pkl")
 
-    if not op.exists(dset_nv_fn):
-        print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
-        dset_nv = convert_to_nimare_dataset(
-            nv_collections_images_df,
-            "nv",
-            image_dir,
-        )
-        z_dset_nv = ImageTransformer("z").transform(dset_nv)
-        z_dset_nv.save(dset_nv_fn)
+    print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
+    dset_nv = convert_to_nimare_dataset(
+        nv_collections_images_df,
+        nv_text_df,
+        image_dir,
+    )
+    z_dset_nv = ImageTransformer("z").transform(dset_nv)
+    z_dset_nv.save(dset_nv_fn)
 
 
 def _main(argv=None):
