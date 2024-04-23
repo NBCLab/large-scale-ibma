@@ -215,6 +215,14 @@ def main(project_dir):
     print(f"Usable images: {len(usable_images_df)}/{len(image_ids)}")
 
     nv_collections_images_df = pd.merge(statisticmap_colelctions, usable_images_df, on="image_id")
+
+    nv_collections_images_df["contrast_id"] = nv_collections_images_df.apply(
+        lambda row: f"{row['collection_id']}-{row['image_id']}-nv", axis=1
+    )
+    nv_collections_images_df["id"] = nv_collections_images_df.apply(
+        lambda row: f"{row['pmid']}-{row['contrast_id']}", axis=1
+    )
+
     nv_collections_images_df.to_csv(op.join(data_dir, "nv_collections_images.csv"), index=False)
 
 
