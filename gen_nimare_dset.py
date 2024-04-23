@@ -1,6 +1,5 @@
 import argparse
 import os.path as op
-import os
 
 import pandas as pd
 from nimare.io import DEFAULT_MAP_TYPE_CONVERSION
@@ -56,6 +55,8 @@ def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
                 "contrast_definition": image["contrast_definition"],
                 "cognitive_paradigm_cogatlas_name": image["cognitive_paradigm_cogatlas_name"],
                 "cognitive_contrast_cogatlas_name": image["cognitive_contrast_cogatlas_name"],
+                "image_name": image["image_name"],
+                "image_file": image["image_file"],
             },
             "text": {
                 "title": title,
@@ -73,14 +74,11 @@ def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
 
 def main(project_dir):
     data_dir = op.join(project_dir, "data")
-    results_dir = op.join(project_dir, "results")
-    cogat_res_dir = op.join(results_dir, "cogat_test")
     image_dir = op.join(data_dir, "nv-data", "images")
-    os.makedirs(cogat_res_dir, exist_ok=True)
 
     nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
     nv_text_df = pd.read_csv(op.join(data_dir, "pmid_text.csv"))
-    dset_nv_fn = op.join(cogat_res_dir, "neurovault_full_dataset.pkl")
+    dset_nv_fn = op.join(data_dir, "neurovault_full_dataset.pkl")
 
     print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
     dset_nv = convert_to_nimare_dataset(
