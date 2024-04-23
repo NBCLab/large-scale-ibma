@@ -2,6 +2,7 @@ import argparse
 import os.path as op
 import itertools
 import os
+from glob import glob
 
 import umap
 import umap.plot
@@ -31,6 +32,12 @@ def _get_parser():
         dest="project_dir",
         required=True,
         help="Path to project directory",
+    )
+    parser.add_argument(
+        "--database",
+        dest="database",
+        required=False,
+        help="Name of the database to use for extracting brain maps",
     )
     parser.add_argument(
         "--atlas",
@@ -68,14 +75,11 @@ def _rm_nonstat_maps(dset, data_df):
     return dset.slice(ids_to_keep)
 
 
-def _get_dset_features(dset, atlas=None):
+def _get_features_from_imgs(images, masker, atlas=None):
     """
     Get the features of a dataset.
     """
     _resample_kwargs = {"clip": True, "interpolation": "linear"}
-
-    images = dset.get_images(imtype="z")
-    masker = dset.masker
 
     imgs = [
         (
@@ -116,57 +120,71 @@ def _get_dset_features(dset, atlas=None):
     return data
 
 
-def main(project_dir, atlas=None, n_cores=1):
+def main(project_dir, database="neurovault", atlas=None, n_cores=1):
     data_dir = op.join(project_dir, "data")
     results_dir = op.join(project_dir, "results")
-    clustering_dir = op.join(results_dir, "clustering")
+    clustering_dir = op.join(results_dir, f"{database}_clustering")
     n_cores = int(n_cores)
     os.makedirs(clustering_dir, exist_ok=True)
 
     dset = Dataset.load(op.join(results_dir, "neurovault_full_dataset.pkl"))
-    nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
+    masker = dset.masker
 
-    # TODO: This is a temporary fix to get the id of the images
-    nv_collections_images_df["contrast_id"] = nv_collections_images_df.apply(
-        lambda row: f"{row['collection_id']}-{row['image_id']}-nv", axis=1
-    )
-    nv_collections_images_df["id"] = nv_collections_images_df.apply(
-        lambda row: f"{row['pmid']}-{row['contrast_id']}", axis=1
-    )
+    # Initialize DataFrame to store results
+    data_df = pd.DataFrame()
 
-    # For now, we will only use the following tasks
-    sel_task = [
-        "trm_4f2453ce33f16",
-        "tsk_Ncknr0soiM4IV",
-        "tsk_4a57abb949e8a",
-        "tsk_mFS3uwUMAhXxe",
-        "tsk_4a57abb949a93",
-        "trm_4f23fc8c42d28",
-    ]
-    nv_collections_images_task_df = nv_collections_images_df[
-        nv_collections_images_df["cognitive_paradigm_cogatlas_id"].isin(sel_task)
-    ]
+    if database == "neurovault":
+        nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
 
-    dset = _rm_nonstat_maps(dset, nv_collections_images_df)
-    dset_sel = dset.slice(nv_collections_images_task_df["id"].values)
-    dset_sel_clean = _exclude_outliers(dset_sel)
+        # For now, we will only use the following tasks
+        sel_task = [
+            "trm_4f2453ce33f16",
+            "tsk_Ncknr0soiM4IV",
+            "tsk_4a57abb949e8a",
+            "tsk_mFS3uwUMAhXxe",
+            "tsk_4a57abb949a93",
+            "trm_4f23fc8c42d28",
+        ]
+        id_sel = dset.metadata[dset.metadata["cognitive_paradigm_cogatlas_id"].isin(sel_task)][
+            "id"
+        ].values
 
-    # Get features from dset given an atlas
-    data = _get_dset_features(dset_sel_clean)
+        dset = _rm_nonstat_maps(dset, nv_collections_images_df)
+        dset_sel = dset.slice(id_sel)
+        dset_sel_clean = _exclude_outliers(dset_sel)
+
+        data_df["id"] = dset_sel_clean.images["id"]
+        data_df = pd.merge(data_df, nv_collections_images_df, how="left", on="id")
+        data_df["pmid"] = data_df["pmid"].astype(str)
+
+        # Get features from dset given an atlas
+        images = dset_sel_clean.get_images(imtype="z")
+
+    elif database == "neurosynth":
+        metamaps_dir = op.join(data_dir, "neurosynth", "metamaps")
+
+        img_paths = sorted(glob(os.path.join(metamaps_dir, "*.nii*")))
+        img_names = [os.path.basename(img).split(os.extsep)[0] for img in img_paths]
+        feature_imgs_dict = dict(zip(img_names, img_paths))
+
+        features, images = ([], [])
+        for feature, img_path in feature_imgs_dict.items():
+            img = nib.load(img_path)
+            features.append(feature)
+            images.append(np.squeeze(masker.transform(img)))
+
+        data_df["feature"] = features
+
+    data = _get_features_from_imgs(images, masker, atlas=atlas)
 
     # Compute QC matrices
     corr_data = np.corrcoef(data, rowvar=True)
     affinity_data = cosine_similarity(data)
     distance_data = affinity_data.max() - affinity_data
+    np.save(op.join(clustering_dir, f"{atlas}_dat.npy"), data)
     np.save(op.join(clustering_dir, f"{atlas}_cor.npy"), corr_data)
     np.save(op.join(clustering_dir, f"{atlas}_aff.npy"), affinity_data)
     np.save(op.join(clustering_dir, f"{atlas}_dis.npy"), distance_data)
-
-    # Initialize DataFrame to store results
-    data_df = pd.DataFrame()
-    data_df["id"] = dset_sel_clean.images["id"]
-    data_df = pd.merge(data_df, nv_collections_images_df, how="left", on="id")
-    data_df["pmid"] = data_df["pmid"].astype(str)
 
     # Set up dimensionality reduction and clustering parameters
     # n_neighbors range from 2 to a quarter of the data
