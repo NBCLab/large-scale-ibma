@@ -16,6 +16,8 @@ temp/
 
 figures/decoding/*
 figures/clustering/*
+figures/neurosynth_clustering/*
+figures/neurovault_clustering/*
 figures/umap/*
 figures/pubmed_ibma/*
 figures/pubmed_ibma/*

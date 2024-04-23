@@ -157,40 +157,45 @@ def main(project_dir, database="neurovault", atlas=None, space="umap", tasks=Non
 
     # Initialize DataFrame to store results
     data_df = pd.DataFrame()
+    data_fn = op.join(clustering_dir, f"{atlas}_dat.npy")
 
-    if database == "neurovault":
-        if tasks:
-            id_sel = dset.metadata[dset.metadata["cognitive_paradigm_cogatlas_id"].isin(tasks)][
-                "id"
-            ].values
-            dset = dset.slice(id_sel)
+    # Calculating the data matrix is computationally expensive, see if it has been saved
+    if not op.isfile(data_fn):
+        if database == "neurovault":
+            if tasks:
+                id_sel = dset.metadata[
+                    dset.metadata["cognitive_paradigm_cogatlas_id"].isin(tasks)
+                ]["id"].values
+                dset = dset.slice(id_sel)
 
-        dset = _rm_nonstat_maps(dset)
-        dset = _exclude_outliers(dset)
+            dset = _rm_nonstat_maps(dset)
+            dset = _exclude_outliers(dset)
 
-        data_df["id"] = dset.images["id"]
-        data_df = pd.merge(data_df, dset.metadata, how="left", on="id")
+            data_df["id"] = dset.images["id"]
+            data_df = pd.merge(data_df, dset.metadata, how="left", on="id")
 
-        # Get features from dset given an atlas
-        images = dset.get_images(imtype="z")
+            # Get features from dset given an atlas
+            images = dset.get_images(imtype="z")
 
-    elif database == "neurosynth":
-        metamaps_dir = op.join(data_dir, "neurosynth", "metamaps")
+        elif database == "neurosynth":
+            metamaps_dir = op.join(data_dir, "neurosynth", "metamaps")
 
-        images = sorted(glob(os.path.join(metamaps_dir, "*.nii*")))
-        features = [os.path.basename(img).split(os.extsep)[0] for img in images]
+            images = sorted(glob(os.path.join(metamaps_dir, "*.nii*")))
+            features = [os.path.basename(img).split(os.extsep)[0] for img in images]
 
-        data_df["feature"] = features
+            data_df["feature"] = features
+        else:
+            raise ValueError("Invalid database")
+
+        data = _get_features_from_imgs(images, masker, atlas=atlas)
+        np.save(data_fn, data)
     else:
-        raise ValueError("Invalid database")
-
-    data = _get_features_from_imgs(images, masker, atlas=atlas)
+        data = np.load(data_fn)
 
     # Compute QC matrices
     corr_data = np.corrcoef(data, rowvar=True)
     affinity_data = cosine_similarity(data)
     distance_data = affinity_data.max() - affinity_data
-    np.save(op.join(clustering_dir, f"{atlas}_dat.npy"), data)
     np.save(op.join(clustering_dir, f"{atlas}_cor.npy"), corr_data)
     np.save(op.join(clustering_dir, f"{atlas}_aff.npy"), affinity_data)
     np.save(op.join(clustering_dir, f"{atlas}_dis.npy"), distance_data)
