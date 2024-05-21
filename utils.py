@@ -75,6 +75,39 @@ def _exclude_outliers(dset):
     return dset.slice(unique_ids)
 
 
+def _rm_nonstat_maps(dset):
+    """
+    Remove non-statistical maps from a dataset.
+
+    Notes
+    -----
+    This function requires the dataset to have a metadata field called
+    "image_name" and "image_file".
+    """
+    data_df = dset.metadata
+
+    assert "image_name" in data_df.columns
+
+    ids_to_keep = []
+    for _, row in data_df.iterrows():
+        image_name = row["image_name"]
+        file_name = row["image_file"]
+
+        exclude = False
+        for term in ["ICA", "PCA", "PPI"]:
+            if term in image_name:
+                exclude = True
+                break
+
+        if "cope" in file_name and ("zstat" not in file_name and "tstat" not in file_name):
+            exclude = True
+
+        if not exclude:
+            ids_to_keep.append(row["id"])
+
+    return dset.slice(ids_to_keep)
+
+
 def _generate_counts(
     text_df,
     id_col="id",

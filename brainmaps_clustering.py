@@ -22,13 +22,13 @@ from nilearn._utils.niimg_conversions import _check_same_fov
 from nilearn.image import concat_imgs, resample_to_img
 import numpy as np
 
-from utils import _exclude_outliers
+from utils import _exclude_outliers, _rm_nonstat_maps
 
 # Set up dimensionality reduction and clustering parameters
 # n_neighbors range from 2 to a quarter of the data
 # 0.0 is the recommended value for finding clusters (smallest min_dist)
 COMPONENTS = range(2, 7)
-NEIGHBORS = np.linspace(5, 100, 5, dtype=int)
+NEIGHBORS = np.linspace(5, 1000, 5, dtype=int)
 DISTANCES = [0.0, 0.1, 0.25, 0.5, 0.8]
 SAMPLES = np.linspace(2, 30, 5, dtype=int)  # min_samples for HDBSCAN
 
@@ -74,30 +74,6 @@ def _get_parser():
         help="CPUs",
     )
     return parser
-
-
-def _rm_nonstat_maps(dset):
-    """
-    Remove non-statistical maps from a dataset.
-    """
-    data_df = dset.metadata
-
-    assert "image_name" in data_df.columns
-
-    ids_to_keep = []
-    for _, row in data_df.iterrows():
-        image_name = row["image_name"]
-
-        exclude = False
-        for term in ["ICA", "PCA", "PPI"]:
-            if term in image_name:
-                exclude = True
-                break
-
-        if not exclude:
-            ids_to_keep.append(row["id"])
-
-    return dset.slice(ids_to_keep)
 
 
 def _get_features_from_imgs(images, masker, atlas=None):
