@@ -94,7 +94,7 @@ def _rm_nonstat_maps(dset):
         file_name = row["image_file"]
 
         exclude = False
-        for term in ["ICA", "PCA", "PPI"]:
+        for term in ["ICA", "PCA", "PPI", "seed", "functional connectivity"]:
             if term in image_name:
                 exclude = True
                 break
