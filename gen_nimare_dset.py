@@ -50,6 +50,7 @@ def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
                 "pmcid": image["pmcid"],
                 "collection_id": collection_id,
                 "image_id": image_id,
+                "map_type": image["map_type"],
                 "cognitive_paradigm_cogatlas_id": image["cognitive_paradigm_cogatlas_id"],
                 "cognitive_contrast_cogatlas_id": image["cognitive_contrast_cogatlas_id"],
                 "contrast_definition": image["contrast_definition"],
