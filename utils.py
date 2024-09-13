@@ -1,21 +1,26 @@
 """Utility functions for the meta-analysis pipeline."""
 
-import requests
 import os.path as op
 
-import pandas as pd
-import numpy as np
-from cognitiveatlas.api import get_concept
 import nibabel as nib
-from nilearn._utils.niimg_conversions import _check_same_fov
+import numpy as np
+import pandas as pd
+import requests
+from cognitiveatlas.api import get_concept
+from nilearn._utils.niimg_conversions import check_same_fov
 from nilearn.image import concat_imgs, resample_to_img
-from nimare.utils import get_resource_path
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from nimare.extract import fetch_neuroquery
 from nimare.io import convert_neurosynth_to_dataset
+from nimare.transforms import p_to_z
+from nimare.utils import get_resource_path
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+
+PVAL = 0.05
+ZMIN = p_to_z(PVAL, tail="two")
+ZMAX = 50
 
 
-def _get_outliers(data, ids):
+def _get_outliers_pct(data, ids):
     # Here n_voxels is data.shape[1] considering the nonaggresive mask is used
     n_studies, n_voxels = data.shape
 
@@ -50,6 +55,29 @@ def _get_outliers(data, ids):
     return ids[outliers_idxs]
 
 
+def _get_outliers(data, ids):
+    outliers_idxs = []
+    for img_i, img in enumerate(data):
+        max_val = np.max(img)
+        min_val = np.min(img)
+
+        # Catch any inverted p-value, effect size or correlation maps
+        if max_val < ZMIN and min_val > -ZMIN:
+            outliers_idxs.append(img_i)
+
+        # Catch any map with extreme values
+        if max_val > ZMAX or min_val < -ZMAX:
+            outliers_idxs.append(img_i)
+
+        # Catch any map with all positive or all negative values
+        if ((img > 0).sum() == len(img)) or ((img < 0).sum() == len(img)):
+            outliers_idxs.append(img_i)
+
+        # Exclude base on the effect size maps
+
+    return ids[np.array(outliers_idxs, dtype=int)]
+
+
 def _exclude_outliers(dset):
     # defaults for resampling images (nilearn's defaults do not work well)
     _resample_kwargs = {"clip": True, "interpolation": "linear"}
@@ -60,7 +88,7 @@ def _exclude_outliers(dset):
     imgs = [
         (
             nib.load(img)
-            if _check_same_fov(nib.load(img), reference_masker=masker.mask_img)
+            if check_same_fov(nib.load(img), reference_masker=masker.mask_img)
             else resample_to_img(nib.load(img), masker.mask_img, **_resample_kwargs)
         )
         for img in images
