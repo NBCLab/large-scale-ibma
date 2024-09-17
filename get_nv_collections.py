@@ -1,13 +1,13 @@
 """Get NeuroVault Collections linked to PubMed articles."""
 
 import argparse
-import requests
 import os.path as op
 import re
 import urllib.parse
 
 import numpy as np
 import pandas as pd
+import requests
 
 NEUROSCOUT_OWNER_ID = 5761
 NV_VERSION = "february_2024"
@@ -24,7 +24,8 @@ def _get_parser():
     parser.add_argument(
         "--pg_query_id",
         dest="pg_query_id",
-        required=True,
+        required=False,
+        default="a444c1d1cc79f746a519d97ce9672089",
         help="Pubget query ID",
     )
     return parser
@@ -113,103 +114,63 @@ def search_by_title(title):
     return id_list[0] if id_list else None
 
 
-def main(project_dir, pg_query_id):
-    data_dir = op.join(project_dir, "data")
-    nv_data_dir = op.join(data_dir, "nv-data", NV_VERSION)
-    pubget_dir = op.join(data_dir, "pubget_data")
-    pubget_query = op.join(pubget_dir, f"query_{pg_query_id}")
+def _add_pmid_pmcid(data_df):
+    # Get PMIDs and PMCIDs
+    # Drop collections without PMIDs. It either means the DOI is invalid or the paper is not
+    # indexed in PubMed.
+    data_df["pmid"] = data_df.doi.apply(get_pmid_from_doi)
+    data_df = data_df[data_df.pmid.notnull()]
+    data_df["pmcid"] = data_df.pmid.apply(get_pmcid_from_pmid)
 
-    # Load NV data. Remove Neuroscout collections
-    collections_df = pd.read_csv(op.join(nv_data_dir, "statmaps_collection.csv"))
-    collections_df = collections_df[collections_df.owner_id != NEUROSCOUT_OWNER_ID]
+    return data_df
 
-    # 1. Get collections with DOIs
-    # =================================
-    collections_with_dois = collections_df[collections_df["DOI"].notnull()][["id", "name", "DOI"]]
+
+def _get_col_doi(data_df):
+    collections_with_dois = data_df[data_df["DOI"].notnull()][["id", "name", "DOI"]]
     collections_with_dois = collections_with_dois.rename(
         columns={"id": "collection_id", "name": "collection_name", "DOI": "doi"}
     )
 
-    # Get PMIDs and PMCIDs
-    # Drop collections without PMIDs. It either means the DOI is invalid or the paper is not
-    # indexed in PubMed.
-    collections_with_dois["pmid"] = collections_with_dois.doi.apply(get_pmid_from_doi)
-    collections_with_dois = collections_with_dois[collections_with_dois.pmid.notnull()]
-    collections_with_dois["pmcid"] = collections_with_dois.pmid.apply(get_pmcid_from_pmid)
+    collections_with_dois = _add_pmid_pmcid(collections_with_dois)
     collections_with_dois["source"] = "neurovault"
-    print(f"Found {collections_with_dois.shape[0]} collections with DOIs")
 
-    # 2. Find DOI for NeuroVault collections using the metadata
-    # ======================================================
-    # Get the collections without DOI links, this will include the ones that are
-    # not indexed in PubMed
-    collections_without_dois = collections_df[
-        ~collections_df["id"].isin(collections_with_dois["collection_id"])
-    ]
+    return collections_with_dois
 
+
+def _get_col_doi_meta(data_df):
     # Find DOI in collection description
-    collections_without_dois["DOI"] = collections_without_dois.apply(_look_up_doi, axis=1)
-    collections_without_dois = collections_without_dois.dropna(subset="DOI")
+    data_df["DOI"] = data_df.apply(_look_up_doi, axis=1)
+    data_df = data_df.dropna(subset="DOI")
 
-    collections_without_dois = collections_without_dois[["id", "name", "DOI"]]
-    collections_without_dois = collections_without_dois.rename(
+    data_df = data_df[["id", "name", "DOI"]]
+    data_df = data_df.rename(
         columns={"id": "collection_id", "name": "collection_name", "DOI": "doi"}
     )
 
-    # Get PMIDs and PMCIDs
-    collections_without_dois["pmid"] = collections_without_dois.doi.apply(get_pmid_from_doi)
-    collections_without_dois = collections_without_dois[collections_without_dois.pmid.notnull()]
-    collections_without_dois["pmcid"] = collections_without_dois.pmid.apply(get_pmcid_from_pmid)
+    data_df = _add_pmid_pmcid(data_df)
+    data_df["source"] = "metadata"
 
-    # Rename DOI to secondary_doi
-    collections_without_dois = collections_without_dois.rename(columns={"doi": "secondary_doi"})
-    collections_without_dois["source"] = "metadata"
+    return data_df
 
-    print(f"Found {collections_without_dois.shape[0]} new collections with DOIs from metadata")
 
-    # Concatenate the collections
-    collections_with_pmid = pd.concat(
-        [collections_with_dois, collections_without_dois], ignore_index=True, sort=False
-    )
-
-    # 3. Find PMID for NeuroVault collections using the collection name
-    # ======================================================
-    collections_missing = collections_df[
-        ~collections_df["id"].isin(collections_with_pmid["collection_id"])
-    ]
-    collections_missing = collections_missing[collections_missing.name.notnull()]
-
+def _get_col_pmid_title(data_df):
     # Drop collections with names that are too short
-    collections_missing = collections_missing[collections_missing["name"].str.len() > 40]
+    data_df = data_df[data_df.name.notnull()]
+    data_df = data_df[data_df["name"].str.len() > 40]
 
-    # Get PMIDs and PMCIDs
-    collections_missing["pmid"] = collections_missing.name.apply(search_by_title)
+    # Get PMIDs and PMCIDs from title
+    data_df["pmid"] = data_df.name.apply(search_by_title)
 
-    collections_missing = collections_missing[collections_missing.pmid.notnull()]
-    collections_missing = collections_missing[["id", "name", "pmid"]]
-    collections_missing = collections_missing.rename(
-        columns={"id": "collection_id", "name": "collection_name"}
-    )
+    data_df = data_df[data_df.pmid.notnull()][["id", "name", "pmid"]]
+    data_df = data_df.rename(columns={"id": "collection_id", "name": "collection_name"})
 
-    collections_missing["pmcid"] = collections_missing.pmid.apply(get_pmcid_from_pmid)
-    collections_missing["source"] = "pubmed"
+    data_df["pmcid"] = data_df.pmid.apply(get_pmcid_from_pmid)
+    data_df["source"] = "pubmed"
 
-    print(f"Found {collections_missing.shape[0]} new collections with using the collection name")
+    return data_df
 
-    collections_with_pmid = pd.concat(
-        [collections_with_pmid, collections_missing], ignore_index=True, sort=False
-    )
 
-    # 4. Find NeuroVault collections using pubget search
-    # ======================================================
-    # Load Pubget data
-    pubget_metadata_fn = op.join(pubget_query, "subset_allArticles_extractedData", "metadata.csv")
-    pubget_nv_fn = op.join(
-        pubget_query, "subset_allArticles_extractedData", "neurovault_collections.csv"
-    )
-    pubget_nv_df = pd.read_csv(pubget_nv_fn)
-    pubget_metadata_df = pd.read_csv(pubget_metadata_fn)
-
+def _get_col_pubget(collections_df, data_df, pubget_nv_df, pubget_metadata_df):
     # Convert private_token to collection_id
     collection_ids = pubget_nv_df["collection_id"].to_list()
     pubget_nv_df["collection_id"] = [
@@ -221,12 +182,12 @@ def main(project_dir, pg_query_id):
     pubget_nv_df = pubget_nv_df.reindex(columns=["pmid", "pmcid", "doi", "collection_id"])
     pubget_nv_df = pubget_nv_df.rename(columns={"doi": "secondary_doi"})
     pubget_nv_df["pmid"] = pubget_nv_df["pmid"].astype("Int64")
-    pubget_nv_df = pubget_nv_df.dropna(
-        subset=["collection_id"]
-    )  # Some private collections couldnt be mapped to public ones
+
+    # Some private collections couldnt be mapped to public ones
+    pubget_nv_df = pubget_nv_df.dropna(subset=["collection_id"])
 
     # Get collections found by pubget
-    nv_coll = collections_with_pmid["collection_id"].to_list()
+    nv_coll = data_df["collection_id"].to_list()
     pubget_nv_coll = pubget_nv_df["collection_id"].to_list()
     matching_ids = np.intersect1d(nv_coll, pubget_nv_coll)
 
@@ -245,16 +206,101 @@ def main(project_dir, pg_query_id):
     pubget_nv_df = pubget_nv_df.drop(columns="id")
     pubget_nv_df["source"] = "pubget"
 
+    return pubget_nv_df
+
+
+def main(project_dir, pg_query_id):
+    data_dir = op.join(project_dir, "data")
+    nv_data_dir = op.join(data_dir, "neurovault", NV_VERSION)
+    pubget_dir = op.join(data_dir, "pubget_data")
+    pubget_query = op.join(pubget_dir, f"query_{pg_query_id}")
+
+    # Load NV data
+    collections_df = pd.read_csv(op.join(nv_data_dir, "statmaps_collection.csv"))
+    print(f"Found {collections_df.shape[0]} collections")
+
+    # Load pubget data
+    pubget_metadata_fn = op.join(pubget_query, "subset_allArticles_extractedData", "metadata.csv")
+    pubget_nv_fn = op.join(
+        pubget_query,
+        "subset_allArticles_extractedData",
+        "neurovault_collections.csv",
+    )
+    pubget_nv_df = pd.read_csv(pubget_nv_fn)
+    pubget_metadata_df = pd.read_csv(pubget_metadata_fn)
+
+    # 0. Remove Neuroscout collections
+    collections_df = collections_df[collections_df.owner_id != NEUROSCOUT_OWNER_ID]
+    print(f"Found {collections_df.shape[0]} collections after removing Neuroscout collections")
+
+    # 1. Get collections with DOIs
+    # =================================
+    collections_with_dois = _get_col_doi(collections_df)
+    print(f"Found {collections_with_dois.shape[0]} collections with DOIs")
+
+    # 2. Find DOI for NeuroVault collections using the metadata
+    # ======================================================
+    # Get the collections without DOI links
+    collections_without_dois = collections_df[
+        ~collections_df["id"].isin(collections_with_dois["collection_id"])
+    ]
+    collections_without_dois = _get_col_doi_meta(collections_without_dois)
+    print(f"Found {collections_without_dois.shape[0]} new collections with DOIs from metadata")
+
+    # Concatenate the collections
+    collections_with_pmid = pd.concat(
+        [collections_with_dois, collections_without_dois], ignore_index=True, sort=False
+    )
+
+    # 3. Find PMID for NeuroVault collections using the collection name
+    # ======================================================
+    collections_missing = collections_df[
+        ~collections_df["id"].isin(collections_with_pmid["collection_id"])
+    ]
+    collections_missing = _get_col_pmid_title(collections_missing)
+    print(f"Found {collections_missing.shape[0]} new collections with using the collection name")
+
+    collections_with_pmid = pd.concat(
+        [collections_with_pmid, collections_missing], ignore_index=True, sort=False
+    )
+
+    # 4. Find NeuroVault collections using pubget search
+    # ======================================================
+    # Load Pubget data
+    pubget_nv_df = _get_col_pubget(
+        collections_df,
+        collections_with_pmid,
+        pubget_nv_df,
+        pubget_metadata_df,
+    )
     print(f"Found {pubget_nv_df.shape[0]} new collections with using the pubget search")
 
     # Concatenate the collections
     collections_with_pmid = pd.concat(
         [collections_with_pmid, pubget_nv_df], ignore_index=True, sort=False
     )
-    collections_with_pmid.to_csv(op.join(data_dir, "nv_collections.csv"), index=False)
+
+    # Add missing collections
+    collections_missing = collections_df[
+        ~collections_df["id"].isin(collections_with_pmid["collection_id"])
+    ][["id", "name"]]
+    collections_missing["source"] = "missing"
+    collections_missing["pmid"] = np.nan
+    collections_missing["pmcid"] = np.nan
+    collections_missing["doi"] = np.nan
+    collections_missing = collections_missing.rename(
+        columns={"id": "collection_id", "name": "collection_name"}
+    )
+
+    collections_final_df = pd.concat(
+        [collections_with_pmid, collections_missing], ignore_index=True, sort=False
+    )
+
+    collections_with_pmid.to_csv(op.join(data_dir, "nv_pmid_collections.csv"), index=False)
+    collections_final_df.to_csv(op.join(data_dir, "nv_all_collections.csv"), index=False)
 
     pmcids = collections_with_pmid["pmcid"].dropna().astype(int).astype(str).unique()
-    np.savetxt(op.join(data_dir, "nv-pmcids.txt"), pmcids, fmt="%s")
+    np.savetxt(op.join(data_dir, "neurovault", "nv-pmcids.txt"), pmcids, fmt="%s")
 
 
 def _main(argv=None):
