@@ -2,6 +2,8 @@
 
 env/nv-ibma_env
 
+old/
+
 *-env
 
 *.pyc
@@ -17,6 +19,8 @@ jobs/log
 temp/
 
 figures/decoding/*
+figures/stouffers_variations/*
+figures/hedges_ibma/*
 figures/clustering/*
 figures/neurosynth_clustering/*
 figures/neurovault_clustering/*
