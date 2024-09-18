@@ -2,11 +2,11 @@
 
 import argparse
 import os
-import requests
 import os.path as op
 
 import nibabel as nib
 import pandas as pd
+import requests
 
 NEUROSCOUT_OWNER_ID = 5761
 NV_VERSION = "february_2024"
@@ -118,8 +118,8 @@ def derive_map_type(row):
 
 def main(project_dir):
     data_dir = op.join(project_dir, "data")
-    nv_data_dir = op.join(data_dir, "nv-data", NV_VERSION)
-    image_dir = op.join(data_dir, "nv-data", "images")
+    nv_data_dir = op.join(data_dir, "neurovault", NV_VERSION)
+    image_dir = op.join(data_dir, "neurovault", "images")
     os.makedirs(image_dir, exist_ok=True)
 
     basecollectionitem = pd.read_csv(op.join(nv_data_dir, "statmaps_basecollectionitem.csv"))
@@ -132,7 +132,7 @@ def main(project_dir):
 
     # Load the file with NeuroVault collections linked to PubMed articles
     # (created by get_nv_collections.py)
-    collections_pmid_df = pd.read_csv(op.join(data_dir, "nv_collections.csv"))
+    collections_pmid_df = pd.read_csv(op.join(data_dir, "nv_all_collections.csv"))
     image_merged = pd.merge(
         image, basecollectionitem, left_on="basecollectionitem_ptr_id", right_on="id"
     )
@@ -141,14 +141,16 @@ def main(project_dir):
     )
 
     # Remove rows with missing cognitive_paradigm_cogatlas_id and number_of_subjects
+    # We need both to perform IBMA
     statisticmap_merged = statisticmap_merged.dropna(
         subset=["cognitive_paradigm_cogatlas_id", "number_of_subjects"]
     )
 
     # Keep only rows with collection_id in collections_pmid_df
-    statisticmap_merged = statisticmap_merged[
-        statisticmap_merged.collection_id.isin(collections_pmid_df.collection_id)
-    ]
+    # Skip this for now, as we want to keep all collections for the Baseline model
+    # statisticmap_merged = statisticmap_merged[
+    #     statisticmap_merged.collection_id.isin(collections_pmid_df.collection_id)
+    # ]
 
     # Filter the statisticmap_merged DataFrame
     statisticmap_filtered = statisticmap_merged.query(
@@ -216,14 +218,12 @@ def main(project_dir):
 
     nv_collections_images_df = pd.merge(statisticmap_colelctions, usable_images_df, on="image_id")
 
-    nv_collections_images_df["contrast_id"] = nv_collections_images_df.apply(
-        lambda row: f"{row['collection_id']}-{row['image_id']}-nv", axis=1
-    )
-    nv_collections_images_df["id"] = nv_collections_images_df.apply(
-        lambda row: f"{row['pmid']}-{row['contrast_id']}", axis=1
-    )
+    # Add "99999999" to collections with no PMIDs
+    nv_collections_images_df["pmid"] = nv_collections_images_df["pmid"].fillna(99999999)
 
-    nv_collections_images_df.to_csv(op.join(data_dir, "nv_collections_images.csv"), index=False)
+    nv_collections_images_df.to_csv(
+        op.join(data_dir, "nv_all_collections_images.csv"), index=False
+    )
 
 
 def _main(argv=None):
