@@ -2,8 +2,8 @@ import argparse
 import os.path as op
 
 import pandas as pd
-from nimare.io import DEFAULT_MAP_TYPE_CONVERSION
 from nimare.dataset import Dataset
+from nimare.io import DEFAULT_MAP_TYPE_CONVERSION
 from nimare.transforms import ImageTransformer
 
 
@@ -75,11 +75,11 @@ def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
 
 def main(project_dir):
     data_dir = op.join(project_dir, "data")
-    image_dir = op.join(data_dir, "nv-data", "images")
+    image_dir = op.join(data_dir, "neurovault", "images")
 
-    nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_collections_images.csv"))
+    nv_collections_images_df = pd.read_csv(op.join(data_dir, "nv_all_collections_images.csv"))
     nv_text_df = pd.read_csv(op.join(data_dir, "pmid_text.csv"))
-    dset_nv_fn = op.join(data_dir, "neurovault_full_dataset.pkl")
+    dset_nv_fn = op.join(data_dir, "neurovault_all_dataset.pkl")
 
     print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
     dset_nv = convert_to_nimare_dataset(
@@ -87,8 +87,9 @@ def main(project_dir):
         nv_text_df,
         image_dir,
     )
-    z_dset_nv = ImageTransformer("z").transform(dset_nv)
-    z_dset_nv.save(dset_nv_fn)
+    dset_nv = ImageTransformer("z").transform(dset_nv)
+    dset_nv = ImageTransformer("t").transform(dset_nv)
+    dset_nv.save(dset_nv_fn)
 
 
 def _main(argv=None):
