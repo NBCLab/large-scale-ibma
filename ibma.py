@@ -4,7 +4,7 @@ import math
 import numpy as np
 from nilearn.input_data import NiftiMasker
 from nimare.meta.ibma import IBMAEstimator
-from nimare.transforms import d_to_g, t_to_d, z_to_p
+from nimare.transforms import d_to_g, t_to_d, z_to_p, z_to_t
 from nimare.utils import _boolean_unmask
 from scipy.stats import norm
 
@@ -56,11 +56,15 @@ def calculate_means(estimates, n_maps, gamma=0.2, method="mean"):
         ) / (K - 1)
 
         if method == "trimmed":
+            # Calculate the variance of the mean
             var_mean_maps = (1 / (n_maps[0, :] - 2 * K_gamma)) * winsorized_var
             return trimmed_mean, var_mean_maps
+
         elif method == "winsorized":
+            # Calculate the variance of the mean
             var_mean_maps = (1 / n_maps[0, :]) * winsorized_var
             return winsorized_mean, var_mean_maps
+
     else:
         raise ValueError(f"Method {method} not recognized.")
 
@@ -111,8 +115,13 @@ class AverageHedges(IBMAEstimator):
 
         z_map = est_maps / np.sqrt(var_mean_maps)
         p_map = z_to_p(z_map)
+        dof = est_maps.shape[0] - 1
 
-        return z_map, p_map, est_maps
+        t_map = z_to_t(z_map, dof)
+        cohens_maps = t_to_d(t_map, dof)
+        hedges_maps = d_to_g(cohens_maps, dof)
+
+        return z_map, p_map, est_maps, hedges_maps
 
     def _fit(self, dataset):
         self.dataset = dataset
@@ -128,21 +137,22 @@ class AverageHedges(IBMAEstimator):
             voxel_mask = self.inputs_["aggressive_mask"]
             result_maps = self._fit_model(self.inputs_["t_maps"][:, voxel_mask])
 
-            z_map, p_map, est_map = tuple(
+            z_map, p_map, est_map, es_map = tuple(
                 map(lambda x: _boolean_unmask(x, voxel_mask), result_maps)
             )
         else:
             n_voxels = self.inputs_["t_maps"].shape[1]
 
-            z_map, p_map, est_map = [np.zeros(n_voxels, dtype=float) for _ in range(3)]
+            z_map, p_map, est_map, es_map = [np.zeros(n_voxels, dtype=float) for _ in range(4)]
             for bag in self.inputs_["data_bags"]["t_maps"]:
                 (
                     z_map[bag["voxel_mask"]],
                     p_map[bag["voxel_mask"]],
                     est_map[bag["voxel_mask"]],
+                    es_map[bag["voxel_mask"]],
                 ) = self._fit_model(bag["values"], bag["study_mask"])
 
-        maps = {"z": z_map, "p": p_map, "est": est_map}
+        maps = {"z": z_map, "p": p_map, "est": est_map, "es": es_map}
         description = self._generate_description()
 
         return maps, {}, description
