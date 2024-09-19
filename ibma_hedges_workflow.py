@@ -22,12 +22,19 @@ TASK_IDS = {
 }
 MANUAL_SELECTION = {
     "working_memory": [
-        59429,
-        57498,
+        42805,
+        42807,
+        42803,
+        50291,
+        57499,
         58192,
-        111340,
+        109901,  # maybe
+        109902,
+        111344,
         377201,
         405163,
+        442126,
+        787480,
     ],
 }
 
@@ -65,12 +72,11 @@ def main(project_dir, n_cores=1):
     results_dir = op.join(project_dir, "results", "ibma")
     n_cores = int(n_cores)
 
-    dset = Dataset.load(op.join(data_dir, "neurovault_full_dataset.pkl"))
+    dset = Dataset.load(op.join(data_dir, "neurovault_all_dataset.pkl"))
     dset.update_path(image_dir)
     metadata_df = dset.metadata
 
-    modes = ["full"]
-    # modes = ["full", "auto", "manual"]
+    modes = ["all", "heuristic", "manual"]
     tasks = ["working_memory"]  # working memory fMRI task paradigm
     for mode in modes:
         print(f"Running IBMA for mode: {mode}")
@@ -86,11 +92,15 @@ def main(project_dir, n_cores=1):
             print(f"\tTask: {task_name}")
             dset_task = dset.slice(sub_metadata_df["id"].values)
             metadata_task_df = dset_task.metadata
-            if mode == "full":
-                ids_sel = metadata_task_df["id"].values
-                metadata_sel_df = metadata_task_df
+            if mode == "all":
+                metadata_sel_df = metadata_task_df[metadata_task_df["collection_id"] != 457]
+                ids_sel = metadata_sel_df["id"].values
 
-            elif mode == "auto":
+            elif mode == "heuristic":
+                # Remove images without pmid
+                metadata_task_pmid_df = metadata_task_df[metadata_task_df["pmid"] != "99999999"]
+                dset_task = dset_task.slice(metadata_task_pmid_df["id"].values)
+
                 # Exclude outliers and non-stat maps
                 dset_task = _rm_nonstat_maps(dset_task)
                 dset_task = _exclude_outliers(dset_task)
@@ -113,13 +123,22 @@ def main(project_dir, n_cores=1):
             else:
                 raise ValueError("Invalid mode")
 
-            n_collections = len(metadata_sel_df["collection_id"].unique())
+            unique_cols = metadata_sel_df["collection_id"].unique()
+            n_collections = len(unique_cols)
             print(f"\t{len(ids_sel)} images selected")
             print(f"\t{n_collections} collections")
+            for col in unique_cols:
+                # Print collection id and images:
+                col_df = metadata_sel_df[metadata_sel_df["collection_id"] == col]
+                print(
+                    f"\t\tCollection {col}, pmid {col_df['pmid'].unique()}: {col_df['image_id'].values}"
+                )
 
             # Define output directories
             ibma_dir = op.join(results_dir, task, mode)
             os.makedirs(ibma_dir, exist_ok=True)
+
+            metadata_sel_df.to_csv(op.join(ibma_dir, f"metadata_{mode}.csv"), index=False)
 
             # Run IBMA on non-HCP
             dset_task_sel = dset.slice(ids_sel)
