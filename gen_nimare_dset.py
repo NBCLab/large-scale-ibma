@@ -21,6 +21,8 @@ def _get_parser():
 def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
     suffix = f"-{suffix}" if suffix else ""
 
+    images_df["pmid"] = images_df["pmid"].astype(int).astype(str)
+
     dataset_dict = {}
     for _, image in images_df.iterrows():
         id_ = image["pmid"]
@@ -47,6 +49,7 @@ def convert_to_nimare_dataset(images_df, text_df, img_dir, suffix=""):
         dataset_dict[id_]["contrasts"][new_contrast_name] = {
             "metadata": {
                 "sample_sizes": [image["number_of_subjects"]],
+                "pmid": image["pmid"],
                 "pmcid": image["pmcid"],
                 "collection_id": collection_id,
                 "image_id": image_id,
