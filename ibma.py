@@ -119,9 +119,9 @@ class AverageHedges(IBMAEstimator):
 
         t_map = z_to_t(z_map, dof)
         cohens_maps = t_to_d(t_map, dof)
-        hedges_maps = d_to_g(cohens_maps, dof)
+        new_hedges_maps = d_to_g(cohens_maps, dof)
 
-        return z_map, p_map, est_maps, hedges_maps
+        return z_map, p_map, est_maps, new_hedges_maps  # , hedges_maps
 
     def _fit(self, dataset):
         self.dataset = dataset
@@ -133,6 +133,7 @@ class AverageHedges(IBMAEstimator):
                 "with this Estimator."
             )
 
+        # input_maps = np.zeros_like(self.inputs_["t_maps"])
         if self.aggressive_mask:
             voxel_mask = self.inputs_["aggressive_mask"]
             result_maps = self._fit_model(self.inputs_["t_maps"][:, voxel_mask])
@@ -150,9 +151,10 @@ class AverageHedges(IBMAEstimator):
                     p_map[bag["voxel_mask"]],
                     est_map[bag["voxel_mask"]],
                     es_map[bag["voxel_mask"]],
+                    # input_maps[bag["study_mask"], bag["voxel_mask"]],
                 ) = self._fit_model(bag["values"], bag["study_mask"])
 
-        maps = {"z": z_map, "p": p_map, "est": est_map, "es": es_map}
+        maps = {"z": z_map, "p": p_map, "est": est_map, "es": es_map}  # "input": input_maps
         description = self._generate_description()
 
         return maps, {}, description
