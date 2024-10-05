@@ -3,7 +3,6 @@
 import os.path as op
 
 import nibabel as nib
-import numpy as np
 import pandas as pd
 import requests
 from cognitiveatlas.api import get_concept
@@ -11,78 +10,27 @@ from nilearn._utils.niimg_conversions import check_same_fov
 from nilearn.image import concat_imgs, resample_to_img
 from nimare.extract import fetch_neuroquery
 from nimare.io import convert_neurosynth_to_dataset
-from nimare.transforms import p_to_z
 from nimare.utils import get_resource_path
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
-PVAL = 0.05
-ZMIN = p_to_z(PVAL, tail="two")
-ZMAX = 50
 
+def get_data(dset, imtype="z"):
+    """Get data from a Dataset object.
 
-def _get_outliers_pct(data, ids):
-    # Here n_voxels is data.shape[1] considering the nonaggresive mask is used
-    n_studies, n_voxels = data.shape
+    Parameters
+    ----------
+    dset : :obj:`nimare.dataset.Dataset`
+        Dataset object.
+    imtype : :obj:`str`, optional
+        Type of image to load. Default is 'z'.
 
-    mask = ~np.isnan(data) & (data != 0)
-    maps_lst = [data[i][mask[i]] for i in range(n_studies)]
-
-    # Get outliers based on variance within each study
-    # Set var of empty maps to 0, it will be remove by perc_outliers
-    scores = [np.var(map_) if len(map_) > 1 else 0 for map_ in maps_lst]
-    q1 = np.percentile(scores, 25)
-    q3 = np.percentile(scores, 75)
-    iqr = q3 - q1
-    threshold = 1.5 * iqr
-    var_outliers = np.where((scores < q1 - threshold) | (scores > q3 + threshold))[0]
-
-    # Get images with all positive or all negative values
-    oth_outliers = np.array(
-        [
-            map_i
-            for map_i, map_ in enumerate(maps_lst)
-            if ((map_ > 0).sum() == len(map_)) or ((map_ < 0).sum() == len(map_))
-        ],
-        dtype=int,
-    )
-
-    # Get images with less than 40% of voxels
-    perc_voxs = mask.sum(axis=1) / n_voxels
-    perc_outliers = np.where(perc_voxs < 0.4)[0]
-
-    outliers_idxs = np.unique(np.hstack([var_outliers, oth_outliers, perc_outliers]))
-
-    return ids[outliers_idxs]
-
-
-def _get_outliers(data, ids):
-    outliers_idxs = []
-    for img_i, img in enumerate(data):
-        max_val = np.max(img)
-        min_val = np.min(img)
-
-        # Catch any inverted p-value, effect size or correlation maps
-        if max_val < ZMIN and min_val > -ZMIN:
-            outliers_idxs.append(img_i)
-
-        # Catch any map with extreme values
-        if max_val > ZMAX or min_val < -ZMAX:
-            outliers_idxs.append(img_i)
-
-        # Catch any map with all positive or all negative values
-        if ((img > 0).sum() == len(img)) or ((img < 0).sum() == len(img)):
-            outliers_idxs.append(img_i)
-
-        # Exclude base on the effect size maps
-
-    return ids[np.array(outliers_idxs, dtype=int)]
-
-
-def _exclude_outliers(dset):
-    # defaults for resampling images (nilearn's defaults do not work well)
+    Returns
+    -------
+    data : :obj:`numpy.ndarray`
+        Data from the Dataset object.
+    """
+    images = dset.get_images(imtype=imtype)
     _resample_kwargs = {"clip": True, "interpolation": "linear"}
-
-    images = dset.get_images(imtype="z")
     masker = dset.masker
 
     imgs = [
@@ -95,45 +43,7 @@ def _exclude_outliers(dset):
     ]
 
     img4d = concat_imgs(imgs, ensure_ndim=4)
-    data = masker.transform(img4d)
-
-    outliers = _get_outliers(data, dset.ids)
-    unique_ids = np.setdiff1d(dset.ids, outliers)
-
-    return dset.slice(unique_ids)
-
-
-def _rm_nonstat_maps(dset):
-    """
-    Remove non-statistical maps from a dataset.
-
-    Notes
-    -----
-    This function requires the dataset to have a metadata field called
-    "image_name" and "image_file".
-    """
-    data_df = dset.metadata
-
-    assert "image_name" in data_df.columns
-
-    ids_to_keep = []
-    for _, row in data_df.iterrows():
-        image_name = row["image_name"]
-        file_name = row["image_file"]
-
-        exclude = False
-        for term in ["ICA", "PCA", "PPI", "seed", "functional connectivity"]:
-            if term in image_name:
-                exclude = True
-                break
-
-        if "cope" in file_name and ("zstat" not in file_name and "tstat" not in file_name):
-            exclude = True
-
-        if not exclude:
-            ids_to_keep.append(row["id"])
-
-    return dset.slice(ids_to_keep)
+    return masker.transform(img4d)
 
 
 def _generate_counts(
