@@ -2,14 +2,19 @@
 
 import os.path as op
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from nilearn._utils.niimg_conversions import check_same_fov
 from nilearn.image import resample_to_img
+from nilearn.plotting.matrix_plotting import _reorder_matrix
 from nimare.meta.utils import _apply_liberal_mask
 from nimare.transforms import d_to_g, p_to_z, t_to_d
 from nimare.utils import _boolean_unmask
 from scipy.stats import linregress
+from sklearn.cluster import SpectralClustering
+from sklearn.metrics import silhouette_score
+from sklearn.metrics.pairwise import cosine_similarity
 
 from utils import get_data
 
@@ -84,6 +89,58 @@ def _temp_check(
     ax.set(title="Noise Distribution")
     plt.xlim(-0.2, 0.2)
     plt.savefig(op.join(TEMP_DIR, "07-noise_dist.png"), bbox_inches="tight")
+
+
+def _get_optimal_clusters(data):
+    def eigengap(affinity_matrix, k):
+        # Compute the normalized graph Laplacian
+        diag = np.sum(affinity_matrix, axis=1)
+        laplacian = np.diag(diag) - affinity_matrix
+        normalized_laplacian = np.diag(1 / np.sqrt(diag)) @ laplacian @ np.diag(1 / np.sqrt(diag))
+
+        # Compute eigenvalues
+        eigenvalues = np.sort(np.linalg.eigvals(normalized_laplacian))
+
+        # Return the k-th eigengap
+        return eigenvalues[k] - eigenvalues[k - 1]
+
+    max_clusters = 10
+    silhouette_scores = []
+    eigengaps = []
+
+    for n in range(2, max_clusters + 1):
+        clustering = SpectralClustering(n_clusters=n, affinity="precomputed", random_state=42)
+        cluster_labels = clustering.fit_predict(data)
+
+        silhouette_scores.append(silhouette_score(data, cluster_labels))
+        eigengaps.append(eigengap(data, n))
+
+    # Plot Silhouette Scores
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(range(2, max_clusters + 1), silhouette_scores)
+    plt.title("Silhouette Method")
+    plt.xlabel("Number of clusters")
+    plt.ylabel("Silhouette Score")
+
+    # Plot Eigengaps
+    plt.subplot(1, 2, 2)
+    plt.plot(range(2, max_clusters + 1), eigengaps)
+    plt.title("Eigengap Heuristic")
+    plt.xlabel("Number of clusters")
+    plt.ylabel("Eigengap")
+
+    plt.tight_layout()
+    plt.savefig(op.join(TEMP_DIR, "cluster_metrics.png"), bbox_inches="tight")
+
+    # Print the optimal number of clusters
+    optimal_n_silhouette = silhouette_scores.index(max(silhouette_scores)) + 2
+    optimal_n_eigengap = eigengaps.index(max(eigengaps)) + 2
+
+    print(f"Optimal number of clusters (Silhouette): {optimal_n_silhouette}")
+    print(f"Optimal number of clusters (Eigengap): {optimal_n_eigengap}")
+
+    return optimal_n_silhouette, optimal_n_eigengap
 
 
 def _get_signal_mask(arr, pct=0.1):
@@ -305,6 +362,13 @@ def _rm_outliers_advanced(dset):
 
     iqr_outliers = _get_iqr_outliers(signal_slope)
 
+    if iqr_outliers.sum() > 0:
+        print("IQR Outliers:", iqr_outliers.sum())
+        sel_ids = new_dset.ids[~iqr_outliers]
+    else:
+        print("No IQR Outliers")
+        sel_ids = new_dset.ids
+
     data_df = pd.DataFrame(
         {
             "id": new_dset.ids,
@@ -313,18 +377,66 @@ def _rm_outliers_advanced(dset):
             "noise_std": std_noise,
             "collection_id": new_dset.metadata["collection_id"],
             "image_id": new_dset.metadata["image_id"],
-            "outlier": iqr_outliers,
         }
     )
     data_df.to_csv(op.join(TEMP_DIR, "data.csv"), index=False)
 
-    return new_dset.slice(new_dset.ids[~iqr_outliers])
+    return new_dset.slice(sel_ids)
+
+
+def _rm_outliers_knn(dset):
+    new_dset = dset.copy()
+    masker = new_dset.masker
+    data = get_data(new_dset, imtype="t")
+    n_studies, n_voxels = data.shape
+    ids = new_dset.ids
+    ids_list = list(ids)
+
+    sample_sizes = np.array(
+        [np.mean(sample_size) for sample_size in new_dset.metadata["sample_sizes"]]
+    )
+    n_maps = np.tile(sample_sizes, (n_voxels, 1)).T
+    cohens_maps = t_to_d(data, n_maps)
+    hedges_maps = d_to_g(cohens_maps, n_maps)
+
+    # Assuming `data` is your dataset (n_samples x n_features)
+    affinity_matrix = cosine_similarity(hedges_maps)
+    affinity_matrix = (affinity_matrix + 1) / 2
+
+    plt.imshow(affinity_matrix, cmap="viridis")
+    plt.colorbar()
+    plt.savefig(op.join(TEMP_DIR, "affinity_matrix.png"), bbox_inches="tight")
+
+    # Reorder matrix
+    corr_ordered_mat, ids_ordered = _reorder_matrix(affinity_matrix, ids_list, "single")
+
+    plt.imshow(corr_ordered_mat, cmap="viridis")
+    plt.colorbar()
+    plt.savefig(op.join(TEMP_DIR, "affinity_matrix_ordered.png"), bbox_inches="tight")
+
+    # Assuming `conn_matrix` is your connectivity matrix
+    n_clusters, _ = _get_optimal_clusters(corr_ordered_mat)
+    cluster = SpectralClustering(n_clusters=n_clusters, affinity="precomputed")
+    labels_pred = cluster.fit_predict(corr_ordered_mat)
+
+    from sklearn.metrics import silhouette_samples
+
+    silhouette_vals = silhouette_samples(corr_ordered_mat, labels_pred)
+    cluster_silhouette_avg = [silhouette_vals[labels_pred == i].mean() for i in range(n_clusters)]
+    max_cluster = np.argmax(cluster_silhouette_avg)
+
+    sel_ids = np.array(ids_ordered)[labels_pred == max_cluster]
+    print(sel_ids)
+    return new_dset.slice(sel_ids)
 
 
 def remove_outliers(dset, method="full", target=None):
     # Remove non-statistical maps
     dset = _rm_nonstat_maps(dset)
     dset = _rm_outliers(dset)
+
+    if method == "knn" or method == "full":
+        dset = _rm_outliers_knn(dset)
 
     if method == "basic" or method == "full":
         dset = _rm_outliers_basic(dset, target=target)

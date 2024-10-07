@@ -11,7 +11,7 @@ from scipy.stats import norm
 LGR = logging.getLogger(__name__)
 
 
-def calculate_means(estimates, n_maps, gamma=0.2, method="mean"):
+def calculate_means(estimates, n_maps, gamma=0.3, method="mean"):
     K = estimates.shape[0]  # K samples, V voxels
 
     if method == "mean":

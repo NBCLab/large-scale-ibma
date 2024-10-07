@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import os.path as op
 import warnings
@@ -13,6 +14,7 @@ from ibma import AverageHedges
 from outlier import remove_outliers
 
 warnings.filterwarnings("ignore")
+logging.basicConfig(level=logging.ERROR)
 
 TASK_IDS = {
     "working_memory": [
@@ -45,7 +47,7 @@ MANUAL_SELECTION = {
         109901,
         109902,
         111344,
-        377201,
+        # 377201,
         405163,
         442126,
         787480,
@@ -58,7 +60,9 @@ MANUAL_SELECTION = {
     "motor": [],
     "language": [],
 }
-EXCLUDE_COLLECTIONS = [457, 2621]
+# EXCLUDE_COLLECTIONS = [457]
+# EXCLUDE_COLLECTIONS = [457, 2621]
+EXCLUDE_COLLECTIONS = [457, 2621, 7103, 7104]
 ESTIMATORS = {
     "mean": AverageHedges(method="mean", aggressive_mask=False),
     "median": AverageHedges(method="median", aggressive_mask=False),
@@ -69,6 +73,12 @@ ESTIMATORS = {
 TARGET_IMGs = {
     "working_memory": nib.load(
         "/Users/julioaperaza/Documents/GitHub/large-scale-ibma/data/neurosynth/metamaps/working_memory.nii.gz"
+    ),
+    "reward_decision_making": nib.load(
+        "/Users/julioaperaza/Documents/GitHub/large-scale-ibma/data/neurosynth/metamaps/reward.nii.gz"
+    ),
+    "motor": nib.load(
+        "/Users/julioaperaza/Documents/GitHub/large-scale-ibma/data/neurosynth/metamaps/motor.nii.gz"
     ),
 }
 
@@ -100,6 +110,7 @@ def _verbose_print(metadata_sel_df, ids_sel):
 
 OUTLIER_METHODS = {
     "heuristic": "None",
+    "heuristic-knn": "knn",
     "heuristic-basic": "basic",
     "heuristic-advanced": "advanced",
     "heuristic-basic+advanced": "full",
@@ -137,14 +148,16 @@ def main(project_dir, verbose=0, n_cores=1):
 
     modes = [
         "all",
-        "heuristic",
-        "heuristic-basic",
-        "heuristic-advanced",
-        "heuristic-basic+advanced",
+        # "heuristic",
+        "heuristic-knn",
+        # "heuristic-basic",
+        # "heuristic-advanced",
+        # "heuristic-basic+advanced",
         "manual",
     ]
     # modes = ["heuristic-basic"]
     # tasks = ["working_memory", "reward_decision_making", "motor"]
+    # tasks = ["reward_decision_making", "motor"]
     tasks = ["working_memory"]
     for mode in modes:
         print(f"Running IBMA for mode: {mode}")
@@ -161,10 +174,14 @@ def main(project_dir, verbose=0, n_cores=1):
             dset_task = dset.slice(sub_metadata_df["id"].values)
             metadata_task_df = dset_task.metadata
 
+            # Remove HCP images
+            non_hcp_df = metadata_task_df[
+                ~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)
+            ]
+            dset_task = dset_task.slice(non_hcp_df["id"].values)
+
             if mode == "all":
-                metadata_sel_df = metadata_task_df[
-                    ~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)
-                ]
+                metadata_sel_df = dset_task.metadata
                 ids_sel = metadata_sel_df["id"].values
 
             elif mode.startswith("heuristic"):
@@ -179,11 +196,6 @@ def main(project_dir, verbose=0, n_cores=1):
                     target=TARGET_IMGs[task],
                 )
                 metadata_sel_df = dset_task.metadata
-
-                # Exclude HCP and high signal images
-                metadata_sel_df = metadata_sel_df[
-                    ~metadata_sel_df["collection_id"].isin(EXCLUDE_COLLECTIONS)
-                ]
                 ids_sel = metadata_sel_df["id"].values
 
                 if len(ids_sel) < 2:
@@ -198,7 +210,8 @@ def main(project_dir, verbose=0, n_cores=1):
             else:
                 raise ValueError("Invalid mode")
 
-            if verbose > 0:
+            # if verbose > 0:
+            if mode == "heuristic-basic":
                 _verbose_print(metadata_sel_df, ids_sel)
 
             # Define output directories
