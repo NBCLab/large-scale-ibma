@@ -5,6 +5,7 @@ import os.path as op
 import warnings
 
 import nibabel as nib
+from joblib import Parallel, delayed
 from nimare.dataset import Dataset
 from nimare.diagnostics import Jackknife
 from nimare.meta.ibma import FixedEffectsHedges
@@ -26,8 +27,8 @@ TASK_IDS = {
     "reward_decision_making": [
         "trm_4f24496a80587",  # gambling task
         "trm_550b5c1a7f4db",  # gambling fMRI task paradigm
-        "trm_4cacee4a1d875",  # mixed gambles task
-        "tsk_Ncknr0soiM4IV",  # social decision-making task
+        # "trm_4cacee4a1d875",  # mixed gambles task
+        # "tsk_Ncknr0soiM4IV",  # social decision-making task
     ],
     "motor": [
         "trm_550b53d7dd674",  # motor fMRI task paradigm
@@ -135,11 +136,37 @@ def _get_parser():
     return parser
 
 
-def main(project_dir, verbose=0, n_cores=1):
+def run_ibma(estimator, dset, result_fn, n_cores=1):
+    # Set voxel_thresh to a high value to skip diagnostics for now
+    diagnostics = Jackknife(voxel_thresh=10000, n_cores=n_cores)
+    workflow = IBMAWorkflow(
+        estimator=estimator,
+        diagnostics=diagnostics,
+        n_cores=n_cores,
+    )
+    result = workflow.fit(dset)
+    result.save(result_fn)
+    print("\t\t\tDone!")
+
+
+def run_ibma_perm(i, dset, n_images, out_dir, estimators, n_cores=1):
+    print(f"\tRunning IBMA, with {n_images} random images, permutation {i}")
+    metadata_df = dset.metadata
+    metadata_rand_df = metadata_df.sample(n=n_images, replace=False, random_state=i)
+    dset_rand = dset.slice(metadata_rand_df["id"].values)
+
+    for label, estimator in estimators.items():
+        print("\t\tUsing estimator: ", label)
+        result_fn = op.join(out_dir, f"{label}_perm-{i:02d}_result.pkl.gz")
+        run_ibma(estimator, dset_rand, result_fn, n_cores=n_cores)
+
+
+def main(project_dir, n_perm=100, verbose=0, n_cores=-1):
     project_dir = op.abspath(project_dir)
     data_dir = op.join(project_dir, "data")
     image_dir = op.join(data_dir, "neurovault", "images")
     results_dir = op.join(project_dir, "results", "ibma")
+    n_perm = int(n_perm)
     n_cores = int(n_cores)
 
     dset = Dataset.load(op.join(data_dir, "neurovault_all_dataset.pkl"))
@@ -147,13 +174,13 @@ def main(project_dir, verbose=0, n_cores=1):
     metadata_df = dset.metadata
 
     modes = [
-        "all",
+        # "all",
         # "heuristic",
         "heuristic-knn",
         # "heuristic-basic",
         # "heuristic-advanced",
         # "heuristic-basic+advanced",
-        "manual",
+        # "manual",
     ]
     # modes = ["heuristic-basic"]
     # tasks = ["working_memory", "reward_decision_making", "motor"]
@@ -174,7 +201,7 @@ def main(project_dir, verbose=0, n_cores=1):
             dset_task = dset.slice(sub_metadata_df["id"].values)
             metadata_task_df = dset_task.metadata
 
-            # Remove HCP images
+            # Remove HCP and other known outliers images
             non_hcp_df = metadata_task_df[
                 ~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)
             ]
@@ -197,9 +224,10 @@ def main(project_dir, verbose=0, n_cores=1):
                 )
                 metadata_sel_df = dset_task.metadata
                 ids_sel = metadata_sel_df["id"].values
+                n_sel_images = len(ids_sel)
 
                 if len(ids_sel) < 2:
-                    print(f"Skipping task {task} because it has no more than 2 images")
+                    print(f"Skipping task {task} because it has less than 2 images")
                     continue
 
             elif mode == "manual":
@@ -211,7 +239,7 @@ def main(project_dir, verbose=0, n_cores=1):
                 raise ValueError("Invalid mode")
 
             # if verbose > 0:
-            if mode == "heuristic-basic":
+            if mode == "heuristic-knn":
                 _verbose_print(metadata_sel_df, ids_sel)
 
             # Define output directories
@@ -220,21 +248,27 @@ def main(project_dir, verbose=0, n_cores=1):
 
             metadata_sel_df.to_csv(op.join(ibma_dir, f"metadata_{mode}.csv"), index=False)
 
-            # Run IBMA on non-HCP
-            dset_task_sel = dset.slice(ids_sel)
+            # Run IBMA
+            dset_task_sel = dset_task.slice(ids_sel)
             print(f"\tRunning IBMA, with {len(dset_task_sel.images)} images")
             for label, estimator in ESTIMATORS.items():
                 print("\t\tUsing estimator: ", label)
                 result_fn = op.join(ibma_dir, f"{label}_result.pkl.gz")
+                run_ibma(estimator, dset_task_sel, result_fn, n_cores=n_cores)
 
-                # Set voxel_thresh to a high value to skip diagnostics for now
-                diagnostics = Jackknife(voxel_thresh=10000, n_cores=n_cores)
-                workflow = IBMAWorkflow(
-                    estimator=estimator, diagnostics=diagnostics, n_cores=n_cores
+            # Run IBMA on 100 samples of n_sel_images randomly sampled images
+            if mode.startswith("heuristic"):
+                ibma_perm_dir = op.join(ibma_dir, "permutation")
+                os.makedirs(ibma_perm_dir, exist_ok=True)
+
+                print(
+                    f"\tRunning IBMA, with {n_perm} random samples"
+                    f" of {len(dset_task_sel.images)} images"
                 )
-                result = workflow.fit(dset_task_sel)
-                result.save(result_fn)
-                print("\t\t\tDone!")
+                Parallel(n_jobs=n_cores)(
+                    delayed(run_ibma_perm)(i, dset_task, n_sel_images, ibma_perm_dir, ESTIMATORS)
+                    for i in range(n_perm)
+                )
 
 
 def _main(argv=None):
