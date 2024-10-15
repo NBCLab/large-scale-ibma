@@ -153,6 +153,8 @@ def run_ibma_perm(i, dset, n_images, out_dir, estimators, n_cores=1):
     print(f"\tRunning IBMA, with {n_images} random images, permutation {i}")
     metadata_df = dset.metadata
     metadata_rand_df = metadata_df.sample(n=n_images, replace=False, random_state=i)
+    print("Permutation ", i)
+    print(metadata_rand_df["id"].values)
     dset_rand = dset.slice(metadata_rand_df["id"].values)
 
     for label, estimator in estimators.items():
@@ -214,15 +216,15 @@ def main(project_dir, n_perm=100, verbose=0, n_cores=-1):
             elif mode.startswith("heuristic"):
                 # Remove images without pmid
                 metadata_task_pmid_df = metadata_task_df[metadata_task_df["pmid"] != "99999999"]
-                dset_task = dset_task.slice(metadata_task_pmid_df["id"].values)
+                dset_task_temp = dset_task.slice(metadata_task_pmid_df["id"].values)
 
                 # Exclude outliers and non-stat maps
-                dset_task = remove_outliers(
-                    dset_task,
+                dset_task_temp = remove_outliers(
+                    dset_task_temp,
                     method=OUTLIER_METHODS[mode],
                     target=TARGET_IMGs[task],
                 )
-                metadata_sel_df = dset_task.metadata
+                metadata_sel_df = dset_task_temp.metadata
                 ids_sel = metadata_sel_df["id"].values
                 n_sel_images = len(ids_sel)
 
