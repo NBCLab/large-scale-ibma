@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import logging
 import os
 import os.path as op
@@ -84,7 +85,10 @@ TARGET_IMGs = {
 }
 
 
-def _verbose_print(metadata_sel_df, ids_sel):
+def _verbose_print(dset_task_sel):
+    metadata_sel_df = dset_task_sel.metadata
+    ids_sel = metadata_sel_df["id"].values
+
     unique_cols = metadata_sel_df["collection_id"].unique()
     n_collections = len(unique_cols)
     print(f"\t{len(ids_sel)} images selected")
@@ -136,6 +140,35 @@ def _get_parser():
     return parser
 
 
+def _select_dset(dset, mode, task):
+    metadata_df = dset.metadata
+    if mode == "all":
+        return dset
+
+    elif mode.startswith("heuristic"):
+        # Remove images without pmid
+        metadata_task_pmid_df = metadata_df[metadata_df["pmid"] != "99999999"]
+        dset_task_temp = dset.slice(metadata_task_pmid_df["id"].values)
+
+        # Exclude outliers and non-stat maps
+        dset_task_temp = remove_outliers(
+            dset_task_temp,
+            method=OUTLIER_METHODS[mode],
+            target=TARGET_IMGs[task],
+        )
+        ids_sel = dset_task_temp.metadata["id"].values
+
+    elif mode == "manual":
+        img_ids = MANUAL_SELECTION[task]
+        metadata_sel_df = metadata_df[metadata_df["image_id"].isin(img_ids)]
+        ids_sel = metadata_sel_df["id"].values
+
+    else:
+        raise ValueError("Invalid mode")
+
+    return dset.slice(ids_sel)
+
+
 def run_ibma(estimator, dset, result_fn, n_cores=1):
     # Set voxel_thresh to a high value to skip diagnostics for now
     diagnostics = Jackknife(voxel_thresh=10000, n_cores=n_cores)
@@ -153,8 +186,6 @@ def run_ibma_perm(i, dset, n_images, out_dir, estimators, n_cores=1):
     print(f"\tRunning IBMA, with {n_images} random images, permutation {i}")
     metadata_df = dset.metadata
     metadata_rand_df = metadata_df.sample(n=n_images, replace=False, random_state=i)
-    print("Permutation ", i)
-    print(metadata_rand_df["id"].values)
     dset_rand = dset.slice(metadata_rand_df["id"].values)
 
     for label, estimator in estimators.items():
@@ -163,7 +194,7 @@ def run_ibma_perm(i, dset, n_images, out_dir, estimators, n_cores=1):
         run_ibma(estimator, dset_rand, result_fn, n_cores=n_cores)
 
 
-def main(project_dir, n_perm=100, verbose=0, n_cores=-1):
+def main(project_dir, n_perm=100, perm=True, verbose=0, n_cores=-1):
     project_dir = op.abspath(project_dir)
     data_dir = op.join(project_dir, "data")
     image_dir = op.join(data_dir, "neurovault", "images")
@@ -188,89 +219,53 @@ def main(project_dir, n_perm=100, verbose=0, n_cores=-1):
     # tasks = ["working_memory", "reward_decision_making", "motor"]
     # tasks = ["reward_decision_making", "motor"]
     tasks = ["working_memory"]
-    for mode in modes:
-        print(f"Running IBMA for mode: {mode}")
-        for task in tasks:
-            print("Running IBMA for task: ", task)
+    for mode, task in itertools.product(modes, tasks):
+        print(f"Running IBMA for task and mode: {task}, {mode}")
 
-            task_ids = TASK_IDS[task]
-            sub_metadata_df = metadata_df[
-                metadata_df["cognitive_paradigm_cogatlas_id"].isin(task_ids)
-            ]
-            task_name = sub_metadata_df["cognitive_paradigm_cogatlas_name"].unique()
+        # Define output directories
+        ibma_dir = op.join(results_dir, task, mode)
+        os.makedirs(ibma_dir, exist_ok=True)
 
-            print(f"\tTask: {task_name}")
-            dset_task = dset.slice(sub_metadata_df["id"].values)
-            metadata_task_df = dset_task.metadata
+        # Select images associated with the task
+        task_ids = TASK_IDS[task]
+        sub_metadata_df = metadata_df[metadata_df["cognitive_paradigm_cogatlas_id"].isin(task_ids)]
+        task_name = sub_metadata_df["cognitive_paradigm_cogatlas_name"].unique()
 
-            # Remove HCP and other known outliers images
-            non_hcp_df = metadata_task_df[
-                ~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)
-            ]
-            dset_task = dset_task.slice(non_hcp_df["id"].values)
+        print(f"\tTask: {task_name}")
+        dset_task = dset.slice(sub_metadata_df["id"].values)
+        metadata_task_df = dset_task.metadata
 
-            if mode == "all":
-                metadata_sel_df = dset_task.metadata
-                ids_sel = metadata_sel_df["id"].values
+        # Remove HCP and other known outliers images
+        non_hcp_df = metadata_task_df[~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)]
+        dset_task = dset_task.slice(non_hcp_df["id"].values)
 
-            elif mode.startswith("heuristic"):
-                # Remove images without pmid
-                metadata_task_pmid_df = metadata_task_df[metadata_task_df["pmid"] != "99999999"]
-                dset_task_temp = dset_task.slice(metadata_task_pmid_df["id"].values)
+        dset_task_sel = _select_dset(dset_task, mode, task)
+        dset_task_sel.metadata.to_csv(op.join(ibma_dir, f"metadata_{mode}.csv"), index=False)
 
-                # Exclude outliers and non-stat maps
-                dset_task_temp = remove_outliers(
-                    dset_task_temp,
-                    method=OUTLIER_METHODS[mode],
-                    target=TARGET_IMGs[task],
-                )
-                metadata_sel_df = dset_task_temp.metadata
-                ids_sel = metadata_sel_df["id"].values
-                n_sel_images = len(ids_sel)
+        # if verbose > 0:
+        if mode == "heuristic-knn":
+            _verbose_print(dset_task_sel)
 
-                if len(ids_sel) < 2:
-                    print(f"Skipping task {task} because it has less than 2 images")
-                    continue
+        # Run IBMA
+        print(f"\tRunning IBMA, with {len(dset_task_sel.images)} images")
+        for label, estimator in ESTIMATORS.items():
+            print("\t\tUsing estimator: ", label)
+            result_fn = op.join(ibma_dir, f"{label}_result.pkl.gz")
 
-            elif mode == "manual":
-                img_ids = MANUAL_SELECTION[task]
-                metadata_sel_df = metadata_task_df[metadata_task_df["image_id"].isin(img_ids)]
-                ids_sel = metadata_sel_df["id"].values
+            run_ibma(estimator, dset_task_sel, result_fn, n_cores=n_cores)
 
-            else:
-                raise ValueError("Invalid mode")
+        # Run IBMA on 100 samples of n_sel_images randomly sampled images
+        if mode.startswith("heuristic") and perm:
+            n_sel_images = len(dset_task_sel.images)
 
-            # if verbose > 0:
-            if mode == "heuristic-knn":
-                _verbose_print(metadata_sel_df, ids_sel)
+            ibma_perm_dir = op.join(ibma_dir, "permutation")
+            os.makedirs(ibma_perm_dir, exist_ok=True)
 
-            # Define output directories
-            ibma_dir = op.join(results_dir, task, mode)
-            os.makedirs(ibma_dir, exist_ok=True)
-
-            metadata_sel_df.to_csv(op.join(ibma_dir, f"metadata_{mode}.csv"), index=False)
-
-            # Run IBMA
-            dset_task_sel = dset_task.slice(ids_sel)
-            print(f"\tRunning IBMA, with {len(dset_task_sel.images)} images")
-            for label, estimator in ESTIMATORS.items():
-                print("\t\tUsing estimator: ", label)
-                result_fn = op.join(ibma_dir, f"{label}_result.pkl.gz")
-                run_ibma(estimator, dset_task_sel, result_fn, n_cores=n_cores)
-
-            # Run IBMA on 100 samples of n_sel_images randomly sampled images
-            if mode.startswith("heuristic"):
-                ibma_perm_dir = op.join(ibma_dir, "permutation")
-                os.makedirs(ibma_perm_dir, exist_ok=True)
-
-                print(
-                    f"\tRunning IBMA, with {n_perm} random samples"
-                    f" of {len(dset_task_sel.images)} images"
-                )
-                Parallel(n_jobs=n_cores)(
-                    delayed(run_ibma_perm)(i, dset_task, n_sel_images, ibma_perm_dir, ESTIMATORS)
-                    for i in range(n_perm)
-                )
+            print(f"\tRunning IBMA, with {n_perm} random samples of {n_sel_images} images")
+            Parallel(n_jobs=n_cores)(
+                delayed(run_ibma_perm)(i, dset_task, n_sel_images, ibma_perm_dir, ESTIMATORS)
+                for i in range(n_perm)
+            )
 
 
 def _main(argv=None):
