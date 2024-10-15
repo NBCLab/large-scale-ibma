@@ -10,7 +10,6 @@ import pandas as pd
 import requests
 
 NEUROSCOUT_OWNER_ID = 5761
-NV_VERSION = "february_2024"
 
 
 def _get_parser():
@@ -20,6 +19,13 @@ def _get_parser():
         dest="project_dir",
         required=True,
         help="Path to project directory",
+    )
+    parser.add_argument(
+        "--neurovault_version",
+        dest="neurovault_version",
+        required=False,
+        default="february_2024",
+        help="NeuroVault version",
     )
     parser.add_argument(
         "--pg_query_id",
@@ -209,9 +215,9 @@ def _get_col_pubget(collections_df, data_df, pubget_nv_df, pubget_metadata_df):
     return pubget_nv_df
 
 
-def main(project_dir, pg_query_id):
+def main(project_dir, neurovault_version, pg_query_id):
     data_dir = op.join(project_dir, "data")
-    nv_data_dir = op.join(data_dir, "neurovault", NV_VERSION)
+    nv_data_dir = op.join(data_dir, "neurovault", neurovault_version)
     pubget_dir = op.join(data_dir, "pubget_data")
     pubget_query = op.join(pubget_dir, f"query_{pg_query_id}")
 
