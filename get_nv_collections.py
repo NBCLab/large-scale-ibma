@@ -215,6 +215,53 @@ def _get_col_pubget(collections_df, data_df, pubget_nv_df, pubget_metadata_df):
     return pubget_nv_df
 
 
+def _get_col_neurosynth(
+    neurosynth_nv_df,
+    neurosynth_metadata_df,
+    collections_with_pmid,
+    collections_df,
+):
+    # Convert private_token to collection_id
+    collection_ids = neurosynth_nv_df["collection_id"].to_list()
+    neurosynth_nv_df["collection_id"] = [
+        _convert_collection_id(id_, collections_df) for id_ in collection_ids
+    ]
+
+    # Get PMIDs and PMCIDs from metadata
+    neurosynth_nv_df = pd.merge(
+        neurosynth_nv_df, neurosynth_metadata_df[["pmid", "doi"]], on="pmid"
+    )
+    neurosynth_nv_df = neurosynth_nv_df.reindex(columns=["pmid", "doi", "collection_id"])
+    neurosynth_nv_df = neurosynth_nv_df.rename(columns={"doi": "secondary_doi"})
+    neurosynth_nv_df["pmid"] = neurosynth_nv_df["pmid"].astype("Int64")
+    neurosynth_nv_df = neurosynth_nv_df.dropna(
+        subset=["collection_id"]
+    )  # Some private collections couldnt be mapped to public ones
+
+    # Get collections found by neurosynth
+    nv_coll = collections_with_pmid["collection_id"].to_list()
+    neurosynth_nv_coll = neurosynth_nv_df["collection_id"].to_list()
+    matching_ids = np.intersect1d(nv_coll, neurosynth_nv_coll)
+
+    neurosynth_mask = ~neurosynth_nv_df["collection_id"].isin(matching_ids)
+    neurosynth_nv_df = neurosynth_nv_df[neurosynth_mask]
+
+    # Select unique collections
+    neurosynth_nv_df = neurosynth_nv_df.sort_values("pmid")
+    neurosynth_nv_df = neurosynth_nv_df.drop_duplicates("collection_id", keep="first")
+
+    # Get collection names
+    neurosynth_nv_df = pd.merge(
+        neurosynth_nv_df, collections_df[["id", "name"]], left_on="collection_id", right_on="id"
+    )
+    neurosynth_nv_df = neurosynth_nv_df.rename(columns={"name": "collection_name"})
+    neurosynth_nv_df = neurosynth_nv_df.drop(columns="id")
+    neurosynth_nv_df["pmcid"] = neurosynth_nv_df.pmid.apply(get_pmcid_from_pmid)
+    neurosynth_nv_df["source"] = "neurosynth"
+
+    return neurosynth_nv_df
+
+
 def main(project_dir, neurovault_version, pg_query_id):
     data_dir = op.join(project_dir, "data")
     nv_data_dir = op.join(data_dir, "neurovault", neurovault_version)
@@ -234,6 +281,12 @@ def main(project_dir, neurovault_version, pg_query_id):
     )
     pubget_nv_df = pd.read_csv(pubget_nv_fn)
     pubget_metadata_df = pd.read_csv(pubget_metadata_fn)
+
+    # Load Neurosynth data
+    neurosynth_nv_fn = op.join(data_dir, "neurosynth", "neurovault_collections.csv")
+    neurosynth_metadata_fn = op.join(data_dir, "neurosynth", "metadata.csv")
+    neurosynth_nv_df = pd.read_csv(neurosynth_nv_fn)
+    neurosynth_metadata_df = pd.read_csv(neurosynth_metadata_fn)
 
     # 0. Remove Neuroscout collections
     collections_df = collections_df[collections_df.owner_id != NEUROSCOUT_OWNER_ID]
@@ -284,6 +337,21 @@ def main(project_dir, neurovault_version, pg_query_id):
     # Concatenate the collections
     collections_with_pmid = pd.concat(
         [collections_with_pmid, pubget_nv_df], ignore_index=True, sort=False
+    )
+
+    # 5. Find NeuroVault collections using pubget search on Neurosynth text
+    # =====================================================================
+    neurosynth_nv_df = _get_col_neurosynth(
+        neurosynth_nv_df,
+        neurosynth_metadata_df,
+        collections_with_pmid,
+        collections_df,
+    )
+    print(f"Found {neurosynth_nv_df.shape[0]} new collections with using the Neurosynth search")
+
+    # Concatenate the collections
+    collections_with_pmid = pd.concat(
+        [collections_with_pmid, neurosynth_nv_df], ignore_index=True, sort=False
     )
 
     # Add missing collections
