@@ -34,18 +34,23 @@ def calculate_means(estimates, n_maps, gamma=0.3, method="mean"):
 
     elif (method == "trimmed") or (method == "winsorized"):
         K_gamma = int(gamma * K / 2)
+        # print(K, K_gamma)
 
         # Sort the estimates along each voxel
         estimates_sorted = np.sort(estimates, axis=0)
 
         # Trimmed mean calculation
-        estimates_trimmed = estimates_sorted[K_gamma:-K_gamma, :]
+        if K_gamma == 0:
+            estimates_trimmed = estimates_sorted  # Use all values
+        else:
+            estimates_trimmed = estimates_sorted[K_gamma:-K_gamma, :]
         trimmed_mean = np.mean(estimates_trimmed, axis=0)
 
         # Windsorized mean calculation
         estimates_winsorized = estimates_sorted.copy()
-        estimates_winsorized[:K_gamma, :] = estimates_sorted[K_gamma, :]
-        estimates_winsorized[-K_gamma:, :] = estimates_sorted[-K_gamma - 1, :]
+        if K_gamma > 0:  # Only modify the array if K_gamma is greater than 0
+            estimates_winsorized[:K_gamma, :] = estimates_sorted[K_gamma, :]
+            estimates_winsorized[-K_gamma:, :] = estimates_sorted[-K_gamma - 1, :]
         winsorized_mean = np.mean(estimates_winsorized, axis=0)
 
         # Windsorized estimate of data variance

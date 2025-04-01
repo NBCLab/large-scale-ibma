@@ -156,13 +156,13 @@ def main(project_dir):
     statisticmap_filtered = statisticmap_merged.query(
         'modality == "fMRI-BOLD"'
         ' & analysis_level == "G"'
-        ' & is_thresholded == "f"'
-        ' & (map_type == "Z" | map_type == "Other" | map_type == "T")'
-        " & brain_coverage > 40"
         " & number_of_subjects > 10"
+        ' & (map_type == "Z" | map_type == "Other" | map_type == "T")'
+        ' & is_thresholded == "f"'
+        " & brain_coverage > 40"
+        ' & not_mni == "f"'
         ' & cognitive_paradigm_cogatlas_id != "trm_4c8a834779883"'  # rest eyes open
         ' & cognitive_paradigm_cogatlas_id != "trm_54e69c642d89b"'  # rest eyes closed
-        ' & not_mni == "f"'
     )
 
     # Relabel the "Other" map type into "Z" or "T" based on the file name and decription

@@ -18,63 +18,26 @@ from outlier import remove_outliers
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.ERROR)
 
-TASK_IDS = {
-    "working_memory": [
-        "trm_550b50095d4a3",  # working memory fMRI task paradigm
-        "tsk_4a57abb949a0d",  # digit span task
-        # "trm_553ec40d44c51",  # Numerical Working Memory Task
-        # "tsk_4a57abb949b1c",  # letter n-back task
-        "tsk_4a57abb949bcd",  # n-back task
-    ],
-    "emotion_processing": ["trm_550b5b066d37b"],  # emotion processing fMRI task paradigm
-    "reward_decision_making": [
-        "trm_4f23fc8c42d28",  # monetary incentive delay task
-        # "trm_4f24496a80587",  # gambling task
-        # "trm_550b5c1a7f4db",  # gambling fMRI task paradigm
-        # "trm_4cacee4a1d875",  # mixed gambles task (this is mostly the NARPS paper)
-        # "tsk_Ncknr0soiM4IV",  # social decision-making task
-    ],
-    "motor": [
-        "trm_550b53d7dd674",  # motor fMRI task paradigm
-        "tsk_4a57abb949bbf",  # motor sequencing task
-        "trm_4c898f079d05e",  # finger tapping task
-    ],
-    "language": ["trm_550b54a8b30f4"],  # language processing fMRI task paradigm
-    "social_cognition": [
-        "trm_4c8a8467304e2",  # theory of mind task
-        "trm_550b557e5f90e",  # social cognition (theory of mind) fMRI task paradigm
-    ],
-    "response_inhibition": [
-        "tsk_4a57abb949a93",  # go/no-go task
-        # "trm_5181f83b77fa4",  # stop signal task with letter naming
-        # "tsk_4a57abb949934",  # choice reaction time task
-    ],
-    "risk": [
-        "trm_4d559bcd67c18",  # balloon analogue risk task
-    ],
-    "emotion_regulation": [
-        "trm_56bbea82c12bb",  # emotion regulation task
-    ],
-    "visual_perception": [
-        "trm_4c899211a965c",  # passive viewing
-    ],
-    "pain": [
-        "trm_4e6114e7b1ff2",  # phasic pain stimulation
-        "trm_4c8991c5beb0a",  # pain monitor/discrimination task
-    ],
+TASK_TO_TOPIC = {
+    "working_memory": "LDA100__78_memory_working_working memory",
+    "emotion_processing": "LDA100__12_emotional_emotion_response",
+    "reward_decision_making": "LDA100__15_reward_loss_monetary",
+    "motor": "LDA100__36_motor_primary_sensory",
+    "language": "LDA100__73_language_naming_linguistic",
+    "social_cognition": "LDA100__51_social_social cognition_cognition",
+    "response_inhibition": "LDA100__6_response_inhibition_response inhibition",
 }
 MANUAL_SELECTION = {
     "working_memory": [
-        42805,
-        42807,
-        42803,
-        # 50291, # images with large sample size to include in the future
+        # 42805,
+        # 42807,
+        # 42803,
+        # 50291,
         # 57499,
-        58192,
-        109901,
+        # 58192,
+        # 109901,
         109902,
-        111340,
-        111344,
+        # 111344,
         # 377201,
         # 405163,
         442126,
@@ -85,13 +48,7 @@ MANUAL_SELECTION = {
         19112,
         19122,
         19123,
-        19115,
-        19116,
-        24538,
         381313,
-        371697,
-        529711,
-        440875,
     ],
     "response_inhibition": [
         28450,
@@ -104,71 +61,13 @@ MANUAL_SELECTION = {
         191529,
         392361,
     ],
-    "emotion_processing": [
-        # 100438, 108833, 564310
-        56832,
-        56833,
-        56834,
-        56835,
-        56836,
-        56837,
-        56838,
-        100437,
-        # 564309,
-        # 564310,
-    ],
+    "emotion_processing": [100438, 108833, 564310],
     "reward_decision_making": [
         16208,
         550282,
     ],
-    "motor": [
-        14045,
-        14046,
-        39070,
-        53720,
-        53721,
-        53722,
-        53723,
-        53724,
-        53725,
-        53726,
-        53747,
-        53748,
-        53749,
-        53750,
-        53751,
-        53766,
-        53767,
-        53768,
-        53769,
-        53770,
-        53771,
-        59400,
-        100643,
-        100644,
-        100646,
-        100647,
-        68450,
-        442748,
-        805634,
-        805635,
-    ],
+    "motor": [],
     "language": [],
-    "pain": [
-        29351,
-        29352,
-        29353,
-        53485,
-        426866,
-        443552,
-        548359,
-        548360,
-        548373,
-        548374,
-        548375,
-        304525,
-        785504,
-    ],
 }
 # EXCLUDE_COLLECTIONS = [457]
 # EXCLUDE_COLLECTIONS = [457, 2621]
@@ -248,7 +147,7 @@ def _get_parser():
     return parser
 
 
-def _select_dset(dset, mode, task, temp_dir=None):
+def _select_dset(dset, mode, task):
     metadata_df = dset.metadata
     if mode == "all":
         return dset
@@ -267,7 +166,6 @@ def _select_dset(dset, mode, task, temp_dir=None):
             dset_task_temp,
             method=method,
             target=target,
-            temp_dir=temp_dir,
         )
         ids_sel = dset_task_temp.metadata["id"].values
 
@@ -282,7 +180,7 @@ def _select_dset(dset, mode, task, temp_dir=None):
     return dset.slice(ids_sel)
 
 
-def run_ibma(estimator, dset, n_cores=1):
+def run_ibma(estimator, dset, result_fn, n_cores=1):
     # Set voxel_thresh to a high value to skip diagnostics for now
     diagnostics = Jackknife(voxel_thresh=10000, n_cores=n_cores)
     workflow = IBMAWorkflow(
@@ -290,58 +188,49 @@ def run_ibma(estimator, dset, n_cores=1):
         diagnostics=diagnostics,
         n_cores=n_cores,
     )
-    return workflow.fit(dset)
+    result = workflow.fit(dset)
     result.save(result_fn)
     print("\t\t\tDone!")
 
 
-def run_ibma_perm(i, dset, n_images, out_dir, estimators):
-    print(f"\tRunning IBMA, with {n_images} random images, permutation {i}", flush=True)
+def run_ibma_perm(i, dset, n_images, out_dir, estimators, n_cores=1):
+    print(f"\tRunning IBMA, with {n_images} random images, permutation {i}")
     metadata_df = dset.metadata
     metadata_rand_df = metadata_df.sample(n=n_images, replace=False, random_state=i)
     dset_rand = dset.slice(metadata_rand_df["id"].values)
 
     for label, estimator in estimators.items():
         print("\t\tUsing estimator: ", label)
-        result_perm = run_ibma(estimator, dset_rand, n_cores=1)
-        ibma_img_perm = result_perm.get_map("est")
-
-        # Define temp out files
-        ibma_img_perm_fn = op.join(out_dir, f"{label}_perm-{i:02d}_map.nii.gz")
-        nib.save(ibma_img_perm, ibma_img_perm_fn)
+        result_fn = op.join(out_dir, f"{label}_perm-{i:02d}_result.pkl.gz")
+        run_ibma(estimator, dset_rand, result_fn, n_cores=n_cores)
 
 
-def main(project_dir, n_perm=100, perm=True, verbose=0, n_cores=-1):
+def main(project_dir, n_perm=100, perm=False, verbose=0, n_cores=-1):
     project_dir = op.abspath(project_dir)
     data_dir = op.join(project_dir, "data")
     image_dir = op.join(data_dir, "neurovault", "images")
-    results_dir = op.join(project_dir, "results", "ibma")
+    results_dir = op.join(project_dir, "results", "ibma-lda")
     n_perm = int(n_perm)
     n_cores = int(n_cores)
 
-    dset = Dataset.load(op.join(data_dir, "neurovault_all_dataset.pkl"))
+    dset = Dataset.load(op.join(data_dir, "neurovault_all_lda_dataset.pkl"))
     dset.update_path(image_dir)
-    metadata_df = dset.metadata
 
     modes = [
         # "all",
         "heuristic",
         # "heuristic-knn",
         # "heuristic-basic",
-        "heuristic-advanced",
+        # "heuristic-advanced",
         # "heuristic-basic+advanced",
-        "manual",
+        # "manual",
     ]
     tasks = [
-        "working_memory",
-        "motor",
-        "pain",
-        "emotion_processing",
-        "social_cognition",
+        # "working_memory",
+        # "social_cognition",
         # "response_inhibition",
         # "reward_decision_making",
-        # "risk",
-        # "visual_perception",
+        "motor",
     ]
     for task, mode in itertools.product(tasks, modes):
         print(f"Running IBMA for task and mode: {task}, {mode}")
@@ -351,19 +240,19 @@ def main(project_dir, n_perm=100, perm=True, verbose=0, n_cores=-1):
         os.makedirs(ibma_dir, exist_ok=True)
 
         # Select images associated with the task
-        task_ids = TASK_IDS[task]
-        sub_metadata_df = metadata_df[metadata_df["cognitive_paradigm_cogatlas_id"].isin(task_ids)]
-        task_name = sub_metadata_df["cognitive_paradigm_cogatlas_name"].unique()
+        topic_id = TASK_TO_TOPIC[task]
+        topic_mask = dset.annotations[topic_id] > 0.05
+        task_ids = dset.annotations[topic_mask].id.values
+        print(f"\t{len(task_ids)} images associated with topic {task}")
 
-        print(f"\tTask: {task_name}")
-        dset_task = dset.slice(sub_metadata_df["id"].values)
+        dset_task = dset.slice(task_ids)
         metadata_task_df = dset_task.metadata
 
         # Remove HCP and other known outliers images
         non_hcp_df = metadata_task_df[~metadata_task_df["collection_id"].isin(EXCLUDE_COLLECTIONS)]
         dset_task = dset_task.slice(non_hcp_df["id"].values)
 
-        dset_task_sel = _select_dset(dset_task, mode, task, temp_dir=ibma_dir)
+        dset_task_sel = _select_dset(dset_task, mode, task)
         dset_task_sel.metadata.to_csv(op.join(ibma_dir, f"metadata_{mode}.csv"), index=False)
 
         # if verbose > 0:
@@ -377,11 +266,10 @@ def main(project_dir, n_perm=100, perm=True, verbose=0, n_cores=-1):
             print("\t\tUsing estimator: ", label)
             result_fn = op.join(ibma_dir, f"{label}_result.pkl.gz")
 
-            result = run_ibma(estimator, dset_task_sel, n_cores=n_cores)
-            result.save(result_fn)
+            run_ibma(estimator, dset_task_sel, result_fn, n_cores=n_cores)
 
         # Run IBMA on 100 samples of n_sel_images randomly sampled images
-        if (mode.startswith("heuristic") or mode == "manual") and perm:
+        if mode.startswith("heuristic") and perm:
             n_sel_images = len(dset_task_sel.images)
 
             ibma_perm_dir = op.join(ibma_dir, "permutation")
@@ -389,7 +277,7 @@ def main(project_dir, n_perm=100, perm=True, verbose=0, n_cores=-1):
 
             print(f"\tRunning IBMA, with {n_perm} random samples of {n_sel_images} images")
             print("Using ", n_cores, " cores")
-            Parallel(n_jobs=n_cores, verbose=10)(
+            Parallel(n_jobs=n_cores)(
                 delayed(run_ibma_perm)(i, dset_task, n_sel_images, ibma_perm_dir, ESTIMATORS)
                 for i in range(n_perm)
             )

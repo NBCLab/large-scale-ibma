@@ -22,8 +22,6 @@ PVAL = 0.05
 ZMIN = p_to_z(PVAL, tail="two")
 ZMAX = 50
 
-TEMP_DIR = "/Users/julioaperaza/Documents/GitHub/large-scale-ibma/temp/outliers-hedges"
-
 
 def _temp_check(
     robust_ave_data,
@@ -32,6 +30,7 @@ def _temp_check(
     robust_ave_noise,
     noise_mask,
     masker,
+    temp_dir,
 ):
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -52,13 +51,13 @@ def _temp_check(
         title="Median Image",
         cut_coords=5,
         figure=fig,
-        output_file=op.join(TEMP_DIR, "01-robust_ave.png"),
+        output_file=op.join(temp_dir, "01-robust_ave.png"),
     )
 
     ax = sns.displot(robust_ave_data.flatten(), bins=50, kde=True)
     ax.set(title="Distribution of the Median Image")
     plt.xlim(-0.2, 0.2)
-    plt.savefig(op.join(TEMP_DIR, "02-robust_ave_dist.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "02-robust_ave_dist.png"), bbox_inches="tight")
 
     fig = plt.figure(figsize=(10, 5))
     plot_stat_map(
@@ -67,7 +66,7 @@ def _temp_check(
         title="Signal Map",
         cut_coords=5,
         figure=fig,
-        output_file=op.join(TEMP_DIR, "03-signal_map.png"),
+        output_file=op.join(temp_dir, "03-signal_map.png"),
     )
 
     fig = plt.figure(figsize=(10, 5))
@@ -77,21 +76,21 @@ def _temp_check(
         title="Noise Map",
         cut_coords=5,
         figure=fig,
-        output_file=op.join(TEMP_DIR, "04-noise_map.png"),
+        output_file=op.join(temp_dir, "04-noise_map.png"),
     )
 
     ax = sns.displot(robust_ave_signal, bins=50, kde=True)
     ax.set(title="Signal Distribution")
     plt.xlim(-0.2, 0.2)
-    plt.savefig(op.join(TEMP_DIR, "06-signal_dist.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "06-signal_dist.png"), bbox_inches="tight")
 
     ax = sns.displot(robust_ave_noise, bins=50, kde=True)
     ax.set(title="Noise Distribution")
     plt.xlim(-0.2, 0.2)
-    plt.savefig(op.join(TEMP_DIR, "07-noise_dist.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "07-noise_dist.png"), bbox_inches="tight")
 
 
-def _get_optimal_clusters(data):
+def _get_optimal_clusters(data, temp_dir):
     def eigengap(affinity_matrix, k):
         # Compute the normalized graph Laplacian
         diag = np.sum(affinity_matrix, axis=1)
@@ -131,7 +130,7 @@ def _get_optimal_clusters(data):
     plt.ylabel("Eigengap")
 
     plt.tight_layout()
-    plt.savefig(op.join(TEMP_DIR, "cluster_metrics.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "cluster_metrics.png"), bbox_inches="tight")
 
     # Print the optimal number of clusters
     optimal_n_silhouette = silhouette_scores.index(max(silhouette_scores)) + 2
@@ -290,7 +289,7 @@ def _rm_outliers_basic(dset, target=None):
     return new_dset.slice(sel_ids)
 
 
-def _rm_outliers_advanced(dset):
+def _rm_outliers_advanced(dset, temp_dir=None):
     new_dset = dset.copy()
     masker = new_dset.masker
     data = get_data(new_dset, imtype="t")
@@ -332,6 +331,7 @@ def _rm_outliers_advanced(dset):
         robust_ave_noise,
         noise_mask,
         masker,
+        temp_dir,
     )
     robust_slopes = []
     signal_slope = []
@@ -379,12 +379,12 @@ def _rm_outliers_advanced(dset):
             "image_id": new_dset.metadata["image_id"],
         }
     )
-    data_df.to_csv(op.join(TEMP_DIR, "data.csv"), index=False)
+    data_df.to_csv(op.join(temp_dir, "data.csv"), index=False)
 
     return new_dset.slice(sel_ids)
 
 
-def _rm_outliers_knn(dset):
+def _rm_outliers_knn(dset, temp_dir=None):
     new_dset = dset.copy()
     masker = new_dset.masker
     data = get_data(new_dset, imtype="t")
@@ -405,17 +405,19 @@ def _rm_outliers_knn(dset):
 
     plt.imshow(affinity_matrix, cmap="viridis")
     plt.colorbar()
-    plt.savefig(op.join(TEMP_DIR, "affinity_matrix.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "affinity_matrix.png"), bbox_inches="tight")
 
     # Reorder matrix
     corr_ordered_mat, ids_ordered = _reorder_matrix(affinity_matrix, ids_list, "single")
 
     plt.imshow(corr_ordered_mat, cmap="viridis")
     plt.colorbar()
-    plt.savefig(op.join(TEMP_DIR, "affinity_matrix_ordered.png"), bbox_inches="tight")
+    plt.savefig(op.join(temp_dir, "affinity_matrix_ordered.png"), bbox_inches="tight")
 
     # Assuming `conn_matrix` is your connectivity matrix
-    n_clusters, _ = _get_optimal_clusters(corr_ordered_mat)
+    n_clusters_i, n_clusters_j = _get_optimal_clusters(corr_ordered_mat, temp_dir)
+    n_clusters = max(n_clusters_i, n_clusters_j)
+
     cluster = SpectralClustering(n_clusters=n_clusters, affinity="precomputed")
     labels_pred = cluster.fit_predict(corr_ordered_mat)
 
@@ -423,6 +425,7 @@ def _rm_outliers_knn(dset):
 
     silhouette_vals = silhouette_samples(corr_ordered_mat, labels_pred)
     cluster_silhouette_avg = [silhouette_vals[labels_pred == i].mean() for i in range(n_clusters)]
+    print("Silhouette Scores:", cluster_silhouette_avg)
     max_cluster = np.argmax(cluster_silhouette_avg)
 
     sel_ids = np.array(ids_ordered)[labels_pred == max_cluster]
@@ -430,18 +433,19 @@ def _rm_outliers_knn(dset):
     return new_dset.slice(sel_ids)
 
 
-def remove_outliers(dset, method="full", target=None):
+def remove_outliers(dset, method="full", target=None, temp_dir=None):
     # Remove non-statistical maps
     dset = _rm_nonstat_maps(dset)
     dset = _rm_outliers(dset)
 
-    if method == "knn" or method == "full":
-        dset = _rm_outliers_knn(dset)
+    if method == "knn" or method == "knn+advanced" or method == "full":
+        dset = _rm_outliers_knn(dset, temp_dir=temp_dir)
 
     if method == "basic" or method == "full":
+        # CBMA SIMILARITIES
         dset = _rm_outliers_basic(dset, target=target)
 
-    if method == "advanced" or method == "full":
-        dset = _rm_outliers_advanced(dset)
+    if method == "advanced" or method == "knn+advanced" or method == "full":
+        dset = _rm_outliers_advanced(dset, temp_dir=temp_dir)
 
     return dset

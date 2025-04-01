@@ -3,6 +3,7 @@ import os.path as op
 
 import pandas as pd
 from nimare.dataset import Dataset
+from nimare.extract import download_abstracts
 from nimare.io import DEFAULT_MAP_TYPE_CONVERSION
 from nimare.transforms import ImageTransformer
 
@@ -84,14 +85,20 @@ def main(project_dir):
     nv_text_df = pd.read_csv(op.join(data_dir, "pmid_text.csv"))
     dset_nv_fn = op.join(data_dir, "neurovault_all_dataset.pkl")
 
-    print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
-    dset_nv = convert_to_nimare_dataset(
-        nv_collections_images_df,
-        nv_text_df,
-        image_dir,
-    )
-    dset_nv = ImageTransformer("z").transform(dset_nv)
-    dset_nv = ImageTransformer("t").transform(dset_nv)
+    if not op.isfile(dset_nv_fn):
+        print(f"Creating full dataset {nv_collections_images_df.shape[0]}", flush=True)
+        dset_nv = convert_to_nimare_dataset(
+            nv_collections_images_df,
+            nv_text_df,
+            image_dir,
+        )
+        dset_nv = ImageTransformer("z").transform(dset_nv)
+        dset_nv = ImageTransformer("t").transform(dset_nv)
+    else:
+        dset_nv = Dataset.load(dset_nv_fn)
+
+    # Download abstracts
+    dset_nv = download_abstracts(dset_nv, "jpera054@fiu.edu")
     dset_nv.save(dset_nv_fn)
 
 
